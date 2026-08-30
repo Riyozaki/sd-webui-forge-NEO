@@ -156,14 +156,39 @@ function requestProgress(
                     progressText = ((res.progress || 0) * 100.0).toFixed(0) + "%";
                 }
 
-                if (res.eta) {
-                    progressText += " ETA: " + formatTime(res.eta);
-                }
-
                 setTitle(progressText);
 
+                // [NEO] "12/30 · 3.4 s/it · ETA 1:02" is a lot more informative than a
+                // bare percentage, and it is the information people want when tuning
+                // samplers, resolutions and model settings.
+                let details = [];
+
+                if (res.total_steps > 0) {
+                    let stepText = (res.steps || 0) + "/" + res.total_steps;
+                    if (res.job_count > 1) {
+                        stepText = (res.job_no || 0) + 1 + "/" + res.job_count + " · " + stepText;
+                    }
+                    details.push(stepText);
+                }
+
+                if (res.rate && res.rate > 0.01) {
+                    if (res.rate >= 1) {
+                        details.push(res.rate.toFixed(1) + " it/s");
+                    } else {
+                        details.push((1 / res.rate).toFixed(1) + " s/it");
+                    }
+                }
+
+                if (res.eta) {
+                    details.push("ETA " + formatTime(res.eta));
+                }
+
+                let suffix = details.length ? " · " + details.join(" · ") : "";
+
                 if (res.textinfo && res.textinfo.indexOf("\n") == -1) {
-                    progressText = res.textinfo + " " + progressText;
+                    progressText = res.textinfo + " " + progressText + suffix;
+                } else {
+                    progressText = progressText + suffix;
                 }
 
                 divInner.textContent = progressText;

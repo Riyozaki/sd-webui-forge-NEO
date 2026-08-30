@@ -1745,3 +1745,132 @@ body.resizing .resize-handle {
     min-width: 0 !important;
     margin: auto 2em;
 }
+
+
+/* ==========================================================================
+   Neo UI polish
+   Additive only: everything below is appended last on purpose so it can be
+   removed (or overridden by user.css) without touching the rules above.
+   ========================================================================== */
+
+/* ------------------------------------------------------------ progress bar */
+
+.progressDiv {
+    border-radius: 6px !important;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.progressDiv .progress {
+    border-radius: 6px;
+    /* the label is longer than the filled part for most of the run, so it needs
+       to stay readable both on the fill and on the track behind it */
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+    transition: width 0.12s linear;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+}
+
+.progressDiv .progress:empty {
+    text-shadow: none;
+}
+
+/* ------------------------------------------------------------ focus & a11y */
+
+.gradio-container button:focus-visible,
+.gradio-container input:focus-visible,
+.gradio-container select:focus-visible,
+.gradio-container textarea:focus-visible,
+.gradio-container [role="button"]:focus-visible {
+    outline: 2px solid var(--primary-500, #4f8cff);
+    outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------ scrollbars */
+
+.gradio-container ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.gradio-container ::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gradio-container ::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.35);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.gradio-container ::-webkit-scrollbar-thumb:hover {
+    background: rgba(128, 128, 128, 0.6);
+    background-clip: content-box;
+}
+
+.gradio-container * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 128, 128, 0.4) transparent;
+}
+
+/* ------------------------------------------------------------ generate button */
+
+#txt2img_generate, #img2img_generate {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: filter 0.12s ease, transform 0.06s ease;
+}
+
+#txt2img_generate:hover, #img2img_generate:hover {
+    filter: brightness(1.08);
+}
+
+#txt2img_generate:active, #img2img_generate:active {
+    transform: translateY(1px);
+}
+
+/* ------------------------------------------------------------ panels */
+
+.gradio-group, .gradio-accordion {
+    border-radius: 10px;
+}
+
+.gradio-accordion > .label-wrap {
+    border-radius: 8px;
+}
+
+/* ------------------------------------------------------------ galleries */
+
+.gradio-gallery .thumbnails img {
+    border-radius: 6px;
+}
+
+.gradio-gallery .preview {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* ------------------------------------------------------------ token counters */
+
+#txt2img_token_counter, #img2img_token_counter,
+#txt2img_negative_token_counter, #img2img_negative_token_counter {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ tool buttons */
+
+.gradio-button.tool {
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* ------------------------------------------------------------ motion */
+
+@media (prefers-reduced-motion: reduce) {
+    .progressDiv .progress,
+    #txt2img_generate, #img2img_generate,
+    .gradio-button.tool,
+    .civitai-card {
+        transition: none !important;
+    }
+}

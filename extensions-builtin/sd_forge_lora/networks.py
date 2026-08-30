@@ -143,29 +143,62 @@ def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=No
     return
 
 
+def _scan_workers() -> int:
+    from modules import shared
+
+    try:
+        if not shared.opts.neo_parallel_model_scan:
+            return 1
+    except Exception:
+        return 1
+
+    return min(16, (os.cpu_count() or 4) + 4)
+
+
+def _read_network(filename: str):
+    name = os.path.splitext(os.path.basename(filename))[0]
+    try:
+        return network.NetworkOnDisk(name, filename)
+    except OSError:  # should catch FileNotFoundError and PermissionError etc.
+        errors.report(f"Failed to load network {name} from {filename}", exc_info=True)
+        return None
+
+
 def process_network_files(names: list[str] | None = None):
     candidates = []
     for _dir in [shared.cmd_opts.lora_dir, *shared.cmd_opts.lora_dirs]:
         candidates.extend(shared.walk_files(_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
-    for filename in candidates:
-        if os.path.isdir(filename):
-            continue
-        name = os.path.splitext(os.path.basename(filename))[0]
-        # if names is provided, only load networks with names in the list
-        if names and name not in names:
-            continue
-        try:
-            entry = network.NetworkOnDisk(name, filename)
-        except OSError:  # should catch FileNotFoundError and PermissionError etc.
-            errors.report(f"Failed to load network {name} from {filename}", exc_info=True)
+
+    candidates = [f for f in candidates if not os.path.isdir(f)]
+
+    # if names is provided, only load networks with names in the list
+    if names:
+        candidates = [f for f in candidates if os.path.splitext(os.path.basename(f))[0] in names]
+
+    # [NEO] Reading a network is almost entirely I/O (safetensors headers and the
+    # metadata/hash caches), so a big LoRA folder scans several times faster when
+    # it is done concurrently.  `map` keeps the original ordering, which keeps the
+    # alias bookkeeping below deterministic.
+    workers = _scan_workers()
+
+    if workers > 1 and len(candidates) > 8:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            entries = list(executor.map(_read_network, candidates))
+    else:
+        entries = [_read_network(f) for f in candidates]
+
+    for entry in entries:
+        if entry is None:
             continue
 
-        available_networks[name] = entry
+        available_networks[entry.name] = entry
 
         if entry.alias in available_network_aliases:
             forbidden_network_aliases[entry.alias.lower()] = 1
 
-        available_network_aliases[name] = entry
+        available_network_aliases[entry.name] = entry
         available_network_aliases[entry.alias] = entry
 
 

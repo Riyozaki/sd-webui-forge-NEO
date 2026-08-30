@@ -69,6 +69,12 @@ class ProgressResponse(BaseModel):
     completed: bool = Field(title="Whether the task has already finished")
     progress: float | None = Field(default=None, title="Progress", description="The progress with a range of 0 to 1")
     eta: float | None = Field(default=None, title="ETA in secs")
+    elapsed: float | None = Field(default=None, title="Elapsed time in secs")
+    steps: int | None = Field(default=None, title="Completed sampling steps")
+    total_steps: int | None = Field(default=None, title="Sampling steps of the current image")
+    job_no: int | None = Field(default=None, title="Index of the image currently being generated")
+    job_count: int | None = Field(default=None, title="Total number of images in this job")
+    rate: float | None = Field(default=None, title="Sampling speed in iterations per second")
     live_preview: str | None = Field(default=None, title="Live preview image", description="Current live preview; a data: uri")
     id_live_preview: int | None = Field(default=None, title="Live preview image ID", description="Send this together with next request to prevent receiving same image")
     textinfo: str | None = Field(default=None, title="Info text", description="Info text used by WebUI.")
@@ -114,6 +120,13 @@ def progressapi(req: ProgressRequest):
     predicted_duration = elapsed_since_start / progress if progress > 0 else None
     eta = predicted_duration - elapsed_since_start if predicted_duration is not None else None
 
+    # [NEO] seconds per step: much more useful than a bare percentage when comparing
+    # samplers/models, and it is what people actually quote when benchmarking.
+    steps_done = 0.0
+    if job_count > 0:
+        steps_done = float(job_no) * float(sampling_steps) + float(sampling_step)
+    rate = steps_done / elapsed_since_start if elapsed_since_start > 0.2 and steps_done > 0 else None
+
     live_preview = None
     id_live_preview = req.id_live_preview
 
@@ -139,7 +152,22 @@ def progressapi(req: ProgressRequest):
                 live_preview = f"data:image/{opts.live_previews_image_format};base64,{base64_image}"
                 id_live_preview = shared.state.id_live_preview
 
-    return ProgressResponse(active=active, queued=queued, completed=completed, progress=progress, eta=eta, live_preview=live_preview, id_live_preview=id_live_preview, textinfo=shared.state.textinfo)
+    return ProgressResponse(
+        active=active,
+        queued=queued,
+        completed=completed,
+        progress=progress,
+        eta=eta,
+        elapsed=elapsed_since_start,
+        steps=sampling_step,
+        total_steps=sampling_steps,
+        job_no=job_no,
+        job_count=job_count,
+        rate=rate,
+        live_preview=live_preview,
+        id_live_preview=id_live_preview,
+        textinfo=shared.state.textinfo,
+    )
 
 
 def restore_progress(id_task):

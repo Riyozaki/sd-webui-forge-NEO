@@ -133,6 +133,26 @@ def checkpoint_tiles(use_short=False):
     return [x.short_title if use_short else x.name for x in checkpoints_list.values()]
 
 
+def _scan_workers() -> int:
+    from modules import shared
+
+    try:
+        if not shared.opts.neo_parallel_model_scan:
+            return 1
+    except Exception:
+        return 1
+
+    return min(16, (os.cpu_count() or 4) + 4)
+
+
+def _read_checkpoint_info(filename: str):
+    try:
+        return CheckpointInfo(filename)
+    except Exception as e:
+        errors.display(e, f"loading checkpoint {filename}")
+        return None
+
+
 def list_models():
     checkpoints_list.clear()
     checkpoint_aliases.clear()
@@ -141,9 +161,24 @@ def list_models():
     for _dir in (*cmd_opts.ckpt_dirs, model_path):
         model_list.update(modelloader.load_models(model_path=_dir, ext_filter=[".ckpt", ".safetensors", ".gguf"], ext_blacklist=[".vae.ckpt", ".vae.safetensors"]))
 
-    for filename in model_list:
-        checkpoint_info = CheckpointInfo(filename)
-        checkpoint_info.register()
+    # [NEO] Same reasoning as for LoRAs: building a CheckpointInfo is I/O bound
+    # (metadata + hash caches), so scanning a large checkpoint folder in parallel
+    # makes both the startup and every "refresh" noticeably snappier.  The list is
+    # sorted so the resulting order stays deterministic.
+    filenames = sorted(model_list)
+    workers = _scan_workers()
+
+    if workers > 1 and len(filenames) > 8:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            infos = list(executor.map(_read_checkpoint_info, filenames))
+    else:
+        infos = [_read_checkpoint_info(f) for f in filenames]
+
+    for checkpoint_info in infos:
+        if checkpoint_info is not None:
+            checkpoint_info.register()
 
 
 re_strip_checksum = re.compile(r"\s*\[[^]]+]\s*$")
