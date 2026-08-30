@@ -149,8 +149,12 @@ if directml_enabled:
     OOM_EXCEPTION = Exception
 
 if args.fast_fp16:
-    _ver = str(torch.version.__version__)
-    if int(_ver[0]) >= 2 and int(_ver[2]) >= 7:
+    try:
+        torch_version = tuple(int(part) for part in torch.__version__.split("+", 1)[0].split(".")[:2])
+    except (TypeError, ValueError):
+        torch_version = (0, 0)
+
+    if torch_version >= (2, 7):
         torch.backends.cuda.allow_fp16_bf16_reduction_math_sdp(True)
         torch.backends.cuda.matmul.allow_fp16_accumulation = True
         print("allow_fp16_accumulation:", torch.backends.cuda.matmul.allow_fp16_accumulation)
@@ -450,29 +454,30 @@ def build_module_profile(model, model_gpu_memory_when_using_cpu_swap):
             m.total_mem, m.weight_mem, m.extra_mem = module_size(m, return_split=True)
             legacy_modules.append(m)
 
-    gpu_modules = []
+    gpu_modules = list(legacy_modules)
     gpu_modules_only_extras = []
-    mem_counter = 0
+    mem_counter = sum(m.total_mem for m in legacy_modules)
 
-    for m in legacy_modules.copy():
-        gpu_modules.append(m)
-        legacy_modules.remove(m)
-        mem_counter += m.total_mem
-
-    for m in sorted(all_modules, key=lambda x: x.extra_mem).copy():
+    # Build partitions directly instead of repeatedly removing modules from
+    # lists. Large transformer models contain thousands of modules, making the
+    # previous implementation quadratic during every model load.
+    selected_extra_ids = set()
+    for m in sorted(all_modules, key=lambda x: x.extra_mem):
         if mem_counter + m.extra_mem < model_gpu_memory_when_using_cpu_swap:
             gpu_modules_only_extras.append(m)
-            all_modules.remove(m)
+            selected_extra_ids.add(id(m))
             mem_counter += m.extra_mem
 
-    cpu_modules = all_modules
+    cpu_modules = [m for m in all_modules if id(m) not in selected_extra_ids]
 
-    for m in sorted(gpu_modules_only_extras, key=lambda x: x.weight_mem).copy():
+    promoted_ids = set()
+    for m in sorted(gpu_modules_only_extras, key=lambda x: x.weight_mem):
         if mem_counter + m.weight_mem < model_gpu_memory_when_using_cpu_swap:
             gpu_modules.append(m)
-            gpu_modules_only_extras.remove(m)
+            promoted_ids.add(id(m))
             mem_counter += m.weight_mem
 
+    gpu_modules_only_extras = [m for m in gpu_modules_only_extras if id(m) not in promoted_ids]
     return gpu_modules, gpu_modules_only_extras, cpu_modules
 
 

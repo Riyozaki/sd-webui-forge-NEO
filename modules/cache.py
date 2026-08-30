@@ -25,10 +25,10 @@ def cache(subsection):
     """
 
     cache_obj = caches.get(subsection)
-    if not cache_obj:
+    if cache_obj is None:
         with cache_lock:
             cache_obj = caches.get(subsection)
-            if not cache_obj:
+            if cache_obj is None:
                 cache_obj = diskcache.Cache(os.path.join(cache_dir, subsection))
                 caches[subsection] = cache_obj
 

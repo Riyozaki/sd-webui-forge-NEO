@@ -99,10 +99,11 @@ def make_checkpoint_manager_ui():
 
 
 def find_files_with_extensions(base_path, extensions):
+    extensions = tuple(f".{ext.lstrip('.').lower()}" for ext in extensions)
     found_files = {}
     for root, _, files in os.walk(base_path):
         for file in files:
-            if any(file.endswith(ext) for ext in extensions):
+            if file.lower().endswith(extensions):
                 full_path = os.path.join(root, file)
                 found_files[file] = full_path
     return found_files

@@ -5,7 +5,7 @@ import time
 import traceback
 
 from modules_forge import main_thread
-from modules import shared, progress, errors, devices, fifo_lock, profiling
+from modules import shared, progress, fifo_lock, profiling
 
 queue_lock = fifo_lock.FIFOLock()
 
@@ -87,7 +87,10 @@ def wrap_gradio_call_no_job(func, extra_outputs=None, add_stats=False):
             error_message = f'{type(e).__name__}: {e}'
             res = extra_outputs_array + [f"<div class='error'>{html.escape(error_message)}</div>"]
 
-        devices.torch_gc()
+        # GPU jobs already release transient memory in shared.state.end() and in
+        # their processing cleanup. Emptying the CUDA allocator again here forced
+        # an extra synchronization after every UI callback, including CPU-only
+        # actions such as saving files or reading PNG metadata.
 
         if not add_stats:
             return tuple(res)

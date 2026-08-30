@@ -7,7 +7,6 @@
     const R = {
         tracking: false,
         parent: null,
-        parentWidth: null,
         leftCol: null,
         leftColStartWidth: null,
         screenX: null,
@@ -37,25 +36,26 @@
     }
 
     function afterResize(parent) {
+        const newParentWidth = parent.offsetWidth;
+        const oldParentWidth = parent.lastResizeWidth || newParentWidth;
+
         if (
             displayResizeHandle(parent) &&
             parent.style.gridTemplateColumns !=
             parent.style.originalGridTemplateColumns
         ) {
-            const oldParentWidth = R.parentWidth;
-            const newParentWidth = parent.offsetWidth;
             const widthL = parseInt(parent.style.gridTemplateColumns.split(" ")[0]);
-
             const ratio = newParentWidth / oldParentWidth;
-
             const newWidthL = Math.max(
                 Math.floor(ratio * widthL),
                 parent.minLeftColWidth,
             );
             setLeftColGridTemplate(parent, newWidthL);
-
-            R.parentWidth = newParentWidth;
         }
+
+        // Width is per handle. The previous global value caused one panel to be
+        // resized using another panel's dimensions after a window resize.
+        parent.lastResizeWidth = newParentWidth;
     }
 
     function setup(parent) {
@@ -127,7 +127,6 @@
 
                 R.tracking = true;
                 R.parent = parent;
-                R.parentWidth = parent.offsetWidth;
                 R.leftCol = leftCol;
                 R.leftColStartWidth = leftCol.offsetWidth;
                 if (eventType.startsWith("mouse")) {

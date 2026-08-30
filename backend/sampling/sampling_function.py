@@ -29,6 +29,10 @@ def _strength_is_one(strength) -> bool:
         return False
 
 
+CondObj = collections.namedtuple("CondObj", ["input_x", "mult", "conditioning", "area", "control", "patches"])
+_low_vram_warning_shown = False
+
+
 def get_area_and_mult(conds, x_in, timestep_in):
     area = (x_in.shape[2], x_in.shape[3], 0, 0)
     strength = 1.0
@@ -60,7 +64,12 @@ def get_area_and_mult(conds, x_in, timestep_in):
         assert mask.shape[1] == x_in.shape[2]
         assert mask.shape[2] == x_in.shape[3]
         mask = mask[:, area[2] : area[0] + area[2], area[3] : area[1] + area[3]] * mask_strength
-        mask = mask.unsqueeze(1).repeat(input_x.shape[0] // mask.shape[0], input_x.shape[1], 1, 1)
+        mask = mask.unsqueeze(1)
+        batch_repeats = input_x.shape[0] // mask.shape[0]
+        if batch_repeats > 1:
+            # One channel is enough: every latent channel shares the same mask,
+            # so the four identical copies were pure allocation and bandwidth.
+            mask = mask.repeat(batch_repeats, 1, 1, 1)
         mult = mask * strength
     elif (
         _strength_is_one(strength)
@@ -73,7 +82,8 @@ def get_area_and_mult(conds, x_in, timestep_in):
         # no-op for full-area conditions), so there is nothing to allocate or to apply.
         mult = None
     else:
-        mult = torch.ones_like(input_x) * strength
+        # Same single-channel trick as above; broadcasting handles the rest.
+        mult = torch.ones_like(input_x[:, :1]) * strength
 
     if mult is not None and "mask" not in conds:
         rr = 8
@@ -98,8 +108,7 @@ def get_area_and_mult(conds, x_in, timestep_in):
     control = conds.get("control", None)
 
     patches = None
-    cond_obj = collections.namedtuple("cond_obj", ["input_x", "mult", "conditioning", "area", "control", "patches"])
-    return cond_obj(input_x, mult, conditioning, area, control, patches)
+    return CondObj(input_x, mult, conditioning, area, control, patches)
 
 
 def cond_equal_size(c1, c2):
@@ -116,30 +125,15 @@ def cond_equal_size(c1, c2):
 def can_concat_cond(c1, c2):
     if c1.input_x.shape != c2.input_x.shape:
         return False
-
-    def objects_concatable(obj1, obj2):
-        if (obj1 is None) != (obj2 is None):
-            return False
-        if obj1 is not None:
-            if obj1 is not obj2:
-                return False
-        return True
-
-    if not objects_concatable(c1.control, c2.control):
+    if c1.control is not c2.control:
         return False
-
-    if not objects_concatable(c1.patches, c2.patches):
+    if c1.patches is not c2.patches:
         return False
 
     return cond_equal_size(c1.conditioning, c2.conditioning)
 
 
 def cond_cat(c_list):
-    c_crossattn = []
-    c_concat = []
-    c_adm = []
-    crossattn_max_len = 0
-
     temp = {}
     for x in c_list:
         for k in x:
@@ -189,7 +183,7 @@ def compute_cond_mark(cond_or_uncond, sigmas):
     for cx in cond_or_uncond:
         cond_mark += [cx] * cond_or_uncond_size
 
-    cond_mark = torch.tensor(cond_mark, device=sigmas.device, dtype=sigmas.dtype)
+    cond_mark = sigmas.new_tensor(cond_mark)
 
     if len(_COND_MARK_CACHE) >= _COND_CACHE_LIMIT:
         _COND_MARK_CACHE.clear()
@@ -229,6 +223,14 @@ def clear_cond_mark_cache():
 
 
 def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
+    global _low_vram_warning_shown
+
+    out_cond = torch.zeros_like(x_in)
+    out_count = torch.full_like(x_in, 1e-37)
+
+    out_uncond = torch.zeros_like(x_in)
+    out_uncond_count = torch.full_like(x_in, 1e-37)
+
     COND = 0
     UNCOND = 1
 
@@ -284,18 +286,17 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
 
         free_memory = memory_management.get_free_memory(x_in.device)
 
-        if (not args.disable_gpu_warning) and x_in.device.type == "cuda":
+        if not _low_vram_warning_shown and not args.disable_gpu_warning and x_in.device.type == "cuda":
             free_memory_mb = free_memory / (1024.0 * 1024.0)
             safe_memory_mb = 1536.0
             if free_memory_mb < safe_memory_mb:
-                print(f"\n\n----------------------")
-                print(f"[Low GPU VRAM Warning] Your current GPU free memory is {free_memory_mb:.2f} MB for this diffusion iteration.")
-                print(f"[Low GPU VRAM Warning] This number is lower than the safe value of {safe_memory_mb:.2f} MB.")
-                print(f"[Low GPU VRAM Warning] If you continue, you may cause NVIDIA GPU performance degradation for this diffusion process, and the speed may be extremely slow (about 10x slower).")
-                print(f"[Low GPU VRAM Warning] To solve the problem, you can set the 'GPU Weights' (on the top of page) to a lower value.")
-                print(f"[Low GPU VRAM Warning] If you cannot find 'GPU Weights', you can click the 'all' option in the 'UI' area on the left-top corner of the webpage.")
-                print(f"[Low GPU VRAM Warning] If you want to take the risk of NVIDIA GPU fallback and test the 10x slower speed, you can (but are highly not recommended to) add '--disable-gpu-warning' to CMD flags to remove this warning.")
-                print(f"----------------------\n\n")
+                _low_vram_warning_shown = True
+                print("\n\n----------------------")
+                print(f"[Low GPU VRAM Warning] Free memory is {free_memory_mb:.2f} MB, below the safe value of {safe_memory_mb:.2f} MB.")
+                print("[Low GPU VRAM Warning] Performance may degrade severely if the driver starts using shared memory.")
+                print("[Low GPU VRAM Warning] Lower 'GPU Weights' to leave more memory available for inference.")
+                print("[Low GPU VRAM Warning] Add --disable-gpu-warning to the command line flags to silence this message.")
+                print("----------------------\n\n")
 
         for i in range(1, len(to_batch_temp) + 1):
             batch_amount = to_batch_temp[: len(to_batch_temp) // i]
@@ -323,9 +324,9 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
             patches = p.patches
 
         batch_chunks = len(cond_or_uncond)
-        input_x = torch.cat(input_x)
+        input_x = input_x[0] if batch_chunks == 1 else torch.cat(input_x)
         c = cond_cat(c)
-        timestep_ = torch.cat([timestep] * batch_chunks)
+        timestep_ = timestep if batch_chunks == 1 else torch.cat([timestep] * batch_chunks)
 
         transformer_options = {}
         if "transformer_options" in model_options:
@@ -469,6 +470,9 @@ def sampling_function(self, denoiser_params, cond_scale, cond_composition, extra
 
 
 def sampling_prepare(unet: "UnetPatcher", x: torch.Tensor, *, is_img2img: bool = False):
+    global _low_vram_warning_shown
+    _low_vram_warning_shown = False
+
     if is_img2img and dynamic_args.get("kontext", False):
         unet.set_transformer_option("ref_latents", [x.detach().clone()])
     else:
