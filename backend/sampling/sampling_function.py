@@ -41,6 +41,10 @@ def get_area_and_mult(conds, x_in, timestep_in):
 
     input_x = x_in[:, :, area[2] : area[0] + area[2], area[3] : area[1] + area[3]]
 
+    # [NEO] When the condition covers the whole latent, has no mask and uses the default
+    # strength, the multiplier is provably `torch.ones_like(input_x)` (the feathering below
+    # is a no-op for full-area conditions).  Signalling that with `mult=None` lets the
+    # batching code skip six latent-sized allocations and ~8 elementwise kernels per step.
     if "mask" in conds:
         mask_strength = 1.0
         if "mask_strength" in conds:
@@ -50,11 +54,21 @@ def get_area_and_mult(conds, x_in, timestep_in):
         assert mask.shape[2] == x_in.shape[3]
         mask = mask[:, area[2] : area[0] + area[2], area[3] : area[1] + area[3]] * mask_strength
         mask = mask.unsqueeze(1).repeat(input_x.shape[0] // mask.shape[0], input_x.shape[1], 1, 1)
+        mult = mask * strength
+    elif (
+        math.isclose(strength, 1.0)
+        and area[2] == 0
+        and area[3] == 0
+        and area[0] == x_in.shape[2]
+        and area[1] == x_in.shape[3]
+    ):
+        # [NEO] Fast path: the multiplier is a tensor of ones (the feathering below is a
+        # no-op for full-area conditions), so there is nothing to allocate or to apply.
+        mult = None
     else:
-        mask = torch.ones_like(input_x)
-    mult = mask * strength
+        mult = torch.ones_like(input_x) * strength
 
-    if "mask" not in conds:
+    if mult is not None and "mask" not in conds:
         rr = 8
         if area[2] != 0:
             for t in range(rr):
@@ -134,18 +148,55 @@ def cond_cat(c_list):
     return out
 
 
+FAST_SAMPLING_PATH = True
+"""[NEO] Skip the per-step mask accumulators when a single condition (+ a single
+unconditional condition) covers the whole latent without a mask.  Mirrors the
+"Fast path for the common single-condition case" setting; see modules/neo_tuning.py."""
+
+
+_COND_MARK_CACHE = {}
+_COND_INDICES_CACHE = {}
+_COND_CACHE_LIMIT = 128
+"""[NEO] `compute_cond_mark` / `compute_cond_indices` only depend on the pattern of
+cond/uncond entries and on the length of the sigma tensor, so they are identical for
+every step of every generation with the same shape.  They used to be rebuilt - and the
+result copied from *pageable CPU memory to the GPU with a blocking copy* - on every
+single sampling step, which forced a full device synchronisation per step.
+Memoising them removes that synchronisation entirely."""
+
+
+def _cond_cache_key(cond_or_uncond, sigmas):
+    return (tuple(cond_or_uncond), int(sigmas.shape[0]), sigmas.device, sigmas.dtype)
+
+
 def compute_cond_mark(cond_or_uncond, sigmas):
+    key = _cond_cache_key(cond_or_uncond, sigmas)
+
+    cached = _COND_MARK_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     cond_or_uncond_size = int(sigmas.shape[0])
 
     cond_mark = []
     for cx in cond_or_uncond:
         cond_mark += [cx] * cond_or_uncond_size
 
-    cond_mark = torch.Tensor(cond_mark).to(sigmas)
+    cond_mark = torch.tensor(cond_mark, device=sigmas.device, dtype=sigmas.dtype)
+
+    if len(_COND_MARK_CACHE) >= _COND_CACHE_LIMIT:
+        _COND_MARK_CACHE.clear()
+    _COND_MARK_CACHE[key] = cond_mark
     return cond_mark
 
 
 def compute_cond_indices(cond_or_uncond, sigmas):
+    key = _cond_cache_key(cond_or_uncond, sigmas)
+
+    cached = _COND_INDICES_CACHE.get(key)
+    if cached is not None:
+        return cached
+
     cl = int(sigmas.shape[0])
 
     cond_indices = []
@@ -156,16 +207,21 @@ def compute_cond_indices(cond_or_uncond, sigmas):
         else:
             uncond_indices += list(range(i * cl, (i + 1) * cl))
 
-    return cond_indices, uncond_indices
+    result = (cond_indices, uncond_indices)
+
+    if len(_COND_INDICES_CACHE) >= _COND_CACHE_LIMIT:
+        _COND_INDICES_CACHE.clear()
+    _COND_INDICES_CACHE[key] = result
+    return result
+
+
+def clear_cond_mark_cache():
+    _COND_MARK_CACHE.clear()
+    _COND_INDICES_CACHE.clear()
+    return
 
 
 def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
-    out_cond = torch.zeros_like(x_in)
-    out_count = torch.ones_like(x_in) * 1e-37
-
-    out_uncond = torch.zeros_like(x_in)
-    out_uncond_count = torch.ones_like(x_in) * 1e-37
-
     COND = 0
     UNCOND = 1
 
@@ -183,6 +239,27 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
                 continue
 
             to_run += [(p, UNCOND)]
+
+    # [NEO] The overwhelmingly common case is "one condition + one unconditional
+    # condition, both covering the whole latent with no mask".  In that case the mask
+    # accumulators below degenerate into a copy, so we can skip allocating (and doing
+    # arithmetic on) four extra latent-sized tensors on every sampling step.
+    simple = (
+        FAST_SAMPLING_PATH
+        and len(to_run) <= 2
+        and sum(1 for _, flag in to_run if flag == COND) == 1
+        and all(p.mult is None for p, _ in to_run)
+    )
+
+    if simple:
+        out_cond = None
+        out_uncond = None
+    else:
+        out_cond = torch.zeros_like(x_in)
+        out_count = torch.ones_like(x_in) * 1e-37
+
+        out_uncond = torch.zeros_like(x_in)
+        out_uncond_count = torch.ones_like(x_in) * 1e-37
 
     while len(to_run) > 0:
         first = to_run[0]
@@ -281,14 +358,30 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
             output = model.apply_model(input_x, timestep_, **c).chunk(batch_chunks)
         del input_x
 
-        for o in range(batch_chunks):
-            if cond_or_uncond[o] == COND:
-                out_cond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
-                out_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
-            else:
-                out_uncond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
-                out_uncond_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
+        if simple:
+            for o in range(batch_chunks):
+                if cond_or_uncond[o] == COND:
+                    out_cond = output[o]
+                else:
+                    out_uncond = output[o]
+        else:
+            for o in range(batch_chunks):
+                if cond_or_uncond[o] == COND:
+                    out_cond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
+                    out_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
+                else:
+                    out_uncond[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += output[o] * mult[o]
+                    out_uncond_count[:, :, area[o][2] : area[o][0] + area[o][2], area[o][3] : area[o][1] + area[o][3]] += mult[o]
         del mult
+
+    if simple:
+        # Keep the historic contract: a condition that was filtered out (or that was
+        # never requested) is reported as zeros rather than as `None`.
+        if out_cond is None:
+            out_cond = torch.zeros_like(x_in)
+        if out_uncond is None:
+            out_uncond = torch.zeros_like(x_in)
+        return out_cond, out_uncond
 
     out_cond /= out_count
     del out_count

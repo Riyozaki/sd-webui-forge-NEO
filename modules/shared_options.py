@@ -35,6 +35,7 @@ categories.register_category("presets", "Presets")
 categories.register_category("system", "System")
 categories.register_category("postprocessing", "Postprocessing")
 categories.register_category("svdq", "Nunchaku")
+categories.register_category("neo", "Neo Optimizations")
 
 options_templates.update(
     options_section(
@@ -548,6 +549,50 @@ options_templates.update(
             "svdq_cpu_offload": OptionInfo(True, "CPU Offload").info("recommended if the VRAM is less than 14 GB"),
             "svdq_cache_threshold": OptionInfo(0.0, "Cache Threshold", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}).info("increasing the value enhances speed at the cost of quality; a typical value is 0.12; setting it to 0 disables the effect"),
             "svdq_attention": OptionInfo("nunchaku-fp16", "Attention", gr.Radio, {"choices": ["nunchaku-fp16", "flashattn2"]}).info("RTX 20s GPUs can only use nunchaku-fp16"),
+        },
+    )
+)
+
+options_templates.update(
+    options_section(
+        ("neo-performance", "Performance", "neo"),
+        {
+            "neo_explanation": OptionHTML(
+                """
+                <b>Speed without quality loss.</b><br>
+                Everything below is <i>off</i> by default unless it is provably lossless.
+                """
+            ),
+            "neo_cudnn_benchmark": OptionInfo(True, "Auto-tune cuDNN convolutions while sampling").info("the UNet is convolution heavy and sampling re-uses the same shapes for every step, so auto-tuning pays off; automatically disabled in low VRAM mode"),
+            "neo_preview_stream": OptionInfo(True, "Decode the live preview on a separate CUDA stream").info("stops the preview from stalling the sampler; disable it if you see artifacts in the preview"),
+            "neo_tf32": OptionInfo(False, "Allow TF32 for fp32 math").info("only affects <b>fp32</b> models (see the 'GPU Weights' settings); a tiny precision change"),
+            "neo_fp16_accumulation": OptionInfo(False, "Allow fp16 accumulation in fp16 matmuls").info("same as the '--fast-fp16' CMD flag; a tiny precision change"),
+            "neo_fast_sampling_path": OptionInfo(True, "Fast path for the common single-condition case").info("skips the per-step mask accumulators when the whole latent is covered without a mask"),
+        },
+    )
+)
+
+options_templates.update(
+    options_section(
+        ("neo-civitai", "Civitai", "neo"),
+        {
+            "civitai_explanation": OptionHTML(
+                """
+                Browse &amp; download models from <a href="https://civitai.com" target="_blank">Civitai</a>
+                (SFW) and <a href="https://civitai.red" target="_blank">Civitai Red</a> (age restricted)
+                straight from the <b>Extra Networks</b> tab.<br>
+                API keys are created at
+                <i>Account Settings &rarr; API Keys</i> on the respective site.
+                """
+            ),
+            "civitai_api_key": OptionInfo("", "Civitai.com API key", gr.Textbox, {"type": "password"}).info("needed to download models that require an account"),
+            "civitai_red_api_key": OptionInfo("", "Civitai.red API key", gr.Textbox, {"type": "password"}).info("for the age restricted site"),
+            "civitai_default_site": OptionInfo("civitai.com", "Default site", gr.Radio, {"choices": ["civitai.com", "civitai.red"]}),
+            "civitai_allow_nsfw": OptionInfo(False, "Include adult content in search results").info("only relevant for civitai.com; civitai.red is adult by definition"),
+            "civitai_save_info": OptionInfo(True, "Save model info next to the downloaded file").info("writes '<name>.json' so the metadata can be re-read later"),
+            "civitai_save_preview": OptionInfo(True, "Download the preview image of a model").info("writes '<name>.preview.png'; used as the card thumbnail"),
+            "civitai_download_threads": OptionInfo(4, "Parallel download connections", gr.Slider, {"minimum": 1, "maximum": 16, "step": 1}).info("more connections = faster downloads, but Civitai may rate limit you"),
+            "civitai_timeout": OptionInfo(30, "Request timeout (seconds)", gr.Slider, {"minimum": 5, "maximum": 300, "step": 5}),
         },
     )
 )

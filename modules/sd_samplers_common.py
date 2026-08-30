@@ -272,7 +272,12 @@ class Sampler:
         state.sampling_step = 0
 
         try:
-            return func()
+            # [NEO] cuDNN auto-tuning & friends, applied for the duration of this
+            # sampling call only (see modules/neo_tuning.py).
+            from modules import neo_tuning
+
+            with neo_tuning.sampling_context():
+                return func()
         except RecursionError:
             print("Encountered RecursionError during sampling; try to use a smaller rho value instead")
             return self.last_latent

@@ -151,6 +151,36 @@ class State:
         if self.sampling_step - self.current_image_sampling_step >= shared.opts.show_progress_every_n_steps and shared.opts.live_previews_enable and shared.opts.show_progress_every_n_steps != -1:
             self.do_set_current_image()
 
+    def _preview_stream(self):
+        """[NEO] Lazily create the stream used to decode the live preview.
+
+        Without a dedicated stream the preview decode (approx VAE + GPU->CPU copy +
+        PIL conversion) is issued on the very same stream the sampler is using, so
+        the - necessarily synchronising - copy stalls the sampler.  Running it on a
+        side stream keeps the two from serialising.  Created lazily because the
+        State object exists long before CUDA is initialised.
+        """
+        if self.vae_stream is not None:
+            return self.vae_stream
+
+        try:
+            if not shared.opts.neo_preview_stream:
+                return None
+        except Exception:
+            return None
+
+        try:
+            if not torch.cuda.is_available():
+                return None
+            if self.current_latent is None or self.current_latent.device.type != "cuda":
+                return None
+
+            self.vae_stream = torch.cuda.Stream()
+        except Exception:
+            return None
+
+        return self.vae_stream
+
     @torch.inference_mode()
     def do_set_current_image(self):
         if self.current_latent is None:
@@ -159,7 +189,7 @@ class State:
         import modules.sd_samplers
 
         try:
-            if self.vae_stream is not None:
+            if self._preview_stream() is not None:
                 # not waiting on default stream will result in corrupt results
                 # will not block main stream under any circumstances
                 self.vae_stream.wait_stream(torch.cuda.default_stream())
