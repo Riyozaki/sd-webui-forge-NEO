@@ -484,8 +484,10 @@ def forge_model_reload():
 
         del model_data.sd_model
         model_data.sd_model = None
-        memory_management.soft_empty_cache()
+        # Let Python release the tensor objects first, then hand the freed
+        # blocks back to CUDA. Emptying the cache first only finds garbage.
         gc.collect()
+        memory_management.soft_empty_cache()
 
     timer.record("unload existing model")
 

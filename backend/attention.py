@@ -240,14 +240,19 @@ def attention_split(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
     # print("steps", steps, mem_required, mem_free_total, modifier, q.element_size(), tensor_size)
     first_op_done = False
     cleared_cache = False
+    k_for_attention = None
     while True:
         try:
+            if upcast and k_for_attention is None:
+                # K is shared by every query slice. Upcast it once instead of
+                # allocating and converting the full tensor for every slice.
+                k_for_attention = k.float()
             slice_size = q.shape[1] // steps if (q.shape[1] % steps) == 0 else q.shape[1]
             for i in range(0, q.shape[1], slice_size):
                 end = i + slice_size
                 if upcast:
                     with torch.autocast(enabled=False, device_type="cuda"):
-                        s1 = torch.einsum("b i d, b j d -> b i j", q[:, i:end].float(), k.float()) * scale
+                        s1 = torch.einsum("b i d, b j d -> b i j", q[:, i:end].float(), k_for_attention) * scale
                 else:
                     s1 = torch.einsum("b i d, b j d -> b i j", q[:, i:end], k) * scale
 
@@ -278,7 +283,7 @@ def attention_split(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
             else:
                 raise e
 
-    del q, k, v
+    del q, k, v, k_for_attention
 
     r1 = r1.unsqueeze(0).reshape(b, heads, -1, dim_head).permute(0, 2, 1, 3).reshape(b, -1, heads * dim_head)
     return r1

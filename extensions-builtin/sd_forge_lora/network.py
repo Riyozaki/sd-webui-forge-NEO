@@ -1,9 +1,27 @@
 import enum
+import json
 import os
+import re
 
 from modules import cache, errors, hashes, sd_models, shared
 
 metadata_tags_order = {"ss_sd_model_name": 1, "ss_resolution": 2, "ss_clip_skip": 3, "ss_num_train_images": 10, "ss_tag_frequency": 20}
+_hash_pattern = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def civitai_auto_v2_hash(filename):
+    sidecar = os.path.splitext(filename)[0] + ".json"
+    try:
+        # A sidecar older than the weight may describe a replaced file.
+        if os.stat(sidecar).st_mtime_ns < os.stat(filename).st_mtime_ns:
+            return None
+        with open(sidecar, encoding="utf-8") as file:
+            civitai_metadata = (json.load(file) or {}).get("civitai") or {}
+        remote_hashes = civitai_metadata.get("hashes") or {}
+        value = remote_hashes.get("AutoV2") or remote_hashes.get("AUTOV2")
+        return value if isinstance(value, str) and _hash_pattern.fullmatch(value) else None
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 class SdVersion(enum.Enum):
@@ -44,7 +62,12 @@ class NetworkOnDisk:
 
         self.hash = None
         self.shorthash = None
-        self.set_hash(self.metadata.get("sshs_model_hash") or hashes.sha256_from_cache(self.filename, "lora/" + self.name, use_addnet_hash=self.is_safetensors) or "")
+        self.set_hash(
+            self.metadata.get("sshs_model_hash")
+            or (civitai_auto_v2_hash(self.filename) if self.is_safetensors else None)
+            or hashes.sha256_from_cache(self.filename, "lora/" + self.name, use_addnet_hash=self.is_safetensors)
+            or ""
+        )
 
         self.sd_version = self.detect_version()
 

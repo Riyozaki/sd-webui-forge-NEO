@@ -508,10 +508,11 @@ class LoadedModel:
         try:
             real_model = self.model.forge_patch_model(patch_model_to)
             self.model.current_device = self.model.load_device
-        except Exception as e:
-            self.model.forge_unpatch_model(self.model.offload_device)
+        except Exception:
+            # Keep the original exception and let the unload path perform the
+            # rollback once. This also works before a weakref/finalizer exists.
             self.model_unload()
-            raise e
+            raise
 
         if not do_not_need_cpu_swap:
             gpu_modules, gpu_modules_only_extras, cpu_modules = build_module_profile(real_model, model_gpu_memory_when_using_cpu_swap)
@@ -565,13 +566,15 @@ class LoadedModel:
         return real_model
 
     def model_unload(self, avoid_model_moving=False):
+        real_model = self.real_model() if self.real_model is not None else None
+        accelerated_model = real_model if real_model is not None else self.model.model
         if self.model_accelerated:
-            for m in self.real_model().modules():
-                if hasattr(m, "prev_parameters_manual_cast"):
-                    m.parameters_manual_cast = m.prev_parameters_manual_cast
-                    del m.prev_parameters_manual_cast
+            for module in accelerated_model.modules():
+                if hasattr(module, "prev_parameters_manual_cast"):
+                    module.parameters_manual_cast = module.prev_parameters_manual_cast
+                    del module.prev_parameters_manual_cast
 
-            self.model_accelerated = False
+        self.model_accelerated = False
 
         if avoid_model_moving:
             self.model.forge_unpatch_model()
@@ -579,7 +582,8 @@ class LoadedModel:
             self.model.forge_unpatch_model(self.model.offload_device)
             self.model.model_patches_to(self.model.offload_device)
 
-        self.model_finalizer.detach()
+        if self.model_finalizer is not None:
+            self.model_finalizer.detach()
         self.model_finalizer = None
         self.real_model = None
 
@@ -1235,7 +1239,11 @@ def soft_empty_cache(force=False):
     elif torch.cuda.is_available():
         if force or is_nvidia():  # This seems to make things worse on ROCm so I only do it for cuda
             torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
+            # IPC cleanup synchronizes the device and is only useful for
+            # released cross-process CUDA tensors. Reserve it for forced/OOM
+            # recovery instead of every routine model-cache trim.
+            if force:
+                torch.cuda.ipc_collect()
     signal_empty_cache = False
 
 
