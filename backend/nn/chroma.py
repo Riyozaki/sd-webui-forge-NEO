@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 import torch
-from einops import rearrange, repeat
+from einops import rearrange
 from torch import nn
 
 from backend.nn.flux import (
@@ -251,11 +251,11 @@ class IntegratedChromaTransformer2DModel(nn.Module):
         nb_single_block = len(self.single_blocks)
 
         mod_index_length = nb_double_block * 12 + nb_single_block * 3 + 2
-        distill_timestep = timestep_embedding(timesteps.detach().clone(), 16).to(device=device, dtype=dtype)
+        distill_timestep = timestep_embedding(timesteps.detach(), 16).to(device=device, dtype=dtype)
         distil_guidance = timestep_embedding(torch.zeros_like(timesteps), 16).to(device=device, dtype=dtype)
         modulation_index = timestep_embedding(torch.arange(mod_index_length), 32).to(device=device, dtype=dtype)
-        modulation_index = modulation_index.unsqueeze(0).repeat(img.shape[0], 1, 1)
-        timestep_guidance = torch.cat([distill_timestep, distil_guidance], dim=1).unsqueeze(1).repeat(1, mod_index_length, 1)
+        modulation_index = modulation_index.unsqueeze(0).expand(img.shape[0], -1, -1)
+        timestep_guidance = torch.cat([distill_timestep, distil_guidance], dim=1).unsqueeze(1).expand(-1, mod_index_length, -1)
         input_vec = torch.cat([timestep_guidance, modulation_index], dim=-1)
         mod_vectors = self.distilled_guidance_layer(input_vec)
         mod_vectors_dict = self.distribute_modulations(mod_vectors, nb_single_block, nb_double_block)
@@ -292,9 +292,9 @@ class IntegratedChromaTransformer2DModel(nn.Module):
         h_len = (h + (self.patch_size // 2)) // self.patch_size
         w_len = (w + (self.patch_size // 2)) // self.patch_size
         img_ids = torch.zeros((h_len, w_len, 3), device=input_device, dtype=input_dtype)
-        img_ids[..., 1] = img_ids[..., 1] + torch.linspace(0, h_len - 1, steps=h_len, device=input_device, dtype=input_dtype)[:, None]
-        img_ids[..., 2] = img_ids[..., 2] + torch.linspace(0, w_len - 1, steps=w_len, device=input_device, dtype=input_dtype)[None, :]
-        img_ids = repeat(img_ids, "h w c -> b (h w) c", b=bs)
+        img_ids[..., 1] = torch.linspace(0, h_len - 1, steps=h_len, device=input_device, dtype=input_dtype)[:, None]
+        img_ids[..., 2] = torch.linspace(0, w_len - 1, steps=w_len, device=input_device, dtype=input_dtype)[None, :]
+        img_ids = img_ids.reshape(1, h_len * w_len, 3).expand(bs, -1, -1)
         txt_ids = torch.zeros((bs, context.shape[1], 3), device=input_device, dtype=input_dtype)
         del input_device, input_dtype
         out = self.inner_forward(img, img_ids, context, txt_ids, timestep)

@@ -67,7 +67,8 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
             out.append(round(get_scale(i, a[i])))
         return out
 
-    output = torch.empty([samples.shape[0], out_channels] + mult_list_upscale(samples.shape[2:]), device=output_device)
+    output_shape = mult_list_upscale(samples.shape[2:])
+    output = torch.empty([samples.shape[0], out_channels] + output_shape, device=output_device)
 
     for b in range(samples.shape[0]):
         s = samples[b : b + 1]
@@ -76,8 +77,11 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
             output[b : b + 1] = function(s).to(output_device)
             continue
 
-        out = torch.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]), device=output_device)
-        out_div = torch.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]), device=output_device)
+        batch_output_shape = mult_list_upscale(s.shape[2:])
+        out = torch.zeros([s.shape[0], out_channels] + batch_output_shape, device=output_device)
+        # Feathering is identical for every output channel. A single channel is
+        # sufficient and broadcasts during accumulation and normalization.
+        out_div = torch.zeros([s.shape[0], 1] + batch_output_shape, device=output_device)
 
         positions = [range(0, s.shape[d + 2] - overlap[d], tile[d] - overlap[d]) if s.shape[d + 2] > tile[d] else [0] for d in range(dims)]
 
@@ -92,7 +96,7 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
                 upscaled.append(round(get_pos(d, pos)))
 
             ps = function(s_in).to(output_device)
-            mask = torch.ones_like(ps)
+            mask = torch.ones_like(ps[:, :1])
 
             for d in range(2, dims + 2):
                 feather = round(get_scale(d - 2, overlap[d - 2]))
@@ -109,10 +113,12 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
                 o = o.narrow(d + 2, upscaled[d], mask.shape[d + 2])
                 o_d = o_d.narrow(d + 2, upscaled[d], mask.shape[d + 2])
 
-            o.add_(ps * mask)
+            ps.mul_(mask)
+            o.add_(ps)
             o_d.add_(mask)
 
-        output[b : b + 1] = out / out_div
+        out.div_(out_div)
+        output[b : b + 1] = out
     return output
 
 
@@ -174,8 +180,12 @@ class VAE:
 
     def decode_tiled_(self, samples, tile_x=64, tile_y=64, overlap=16):
         decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
-        output = self.process_output((tiled_scale(samples, decode_fn, tile_x // 2, tile_y * 2, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device) + tiled_scale(samples, decode_fn, tile_x * 2, tile_y // 2, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device) + tiled_scale(samples, decode_fn, tile_x, tile_y, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device)) / 3.0)
-        return output
+        # Accumulate the three tiling passes in place. Keeping expression
+        # temporaries here can otherwise consume several full decoded images.
+        output = tiled_scale(samples, decode_fn, tile_x // 2, tile_y * 2, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device)
+        output.add_(tiled_scale(samples, decode_fn, tile_x * 2, tile_y // 2, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device))
+        output.add_(tiled_scale(samples, decode_fn, tile_x, tile_y, overlap, upscale_amount=self.upscale_ratio, output_device=self.output_device)).div_(3.0)
+        return self.process_output(output)
 
     def decode_tiled_3d(self, samples, tile_t=999, tile_x=32, tile_y=32, overlap=(1, 8, 8)):
         decode_fn = lambda a: self.first_stage_model.decode(a.to(self.vae_dtype).to(self.device)).float()
@@ -288,10 +298,12 @@ class VAE:
         return self.encode_tiled_3d(pixel_samples[:, :, :maximum], **args)
 
     def process_input(self, image):
-        return image * 2.0 - 1.0
+        return image.mul(2.0).sub_(1.0)
 
     def process_output(self, image):
-        return torch.clamp((image + 1.0) / 2.0, min=0.0, max=1.0)
+        # Decoder outputs are fresh tensors; normalize them in place to avoid two
+        # additional full-resolution image allocations.
+        return image.add_(1.0).div_(2.0).clamp_(min=0.0, max=1.0)
 
     def __del__(self):
         del self.first_stage_model

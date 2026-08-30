@@ -9,6 +9,10 @@ extra_weight_calculators = {}
 lora_collection_priority = [lora_utils_comfyui]
 
 
+def identity(value):
+    return value
+
+
 def get_function(function_name: str):
     for lora_collection in lora_collection_priority:
         if hasattr(lora_collection, function_name):
@@ -21,10 +25,13 @@ def load_lora(lora, to_load):
 
 
 def inner_str(k, prefix="", suffix=""):
-    return k[len(prefix) : -len(suffix)]
+    end = -len(suffix) if suffix else None
+    return k[len(prefix) : end]
 
 
-def model_lora_keys_clip(model, key_map={}):
+def model_lora_keys_clip(model, key_map=None):
+    if key_map is None:
+        key_map = {}
     model_keys, key_maps = get_function("model_lora_keys_clip")(model, key_map)
 
     for model_key in model_keys:
@@ -39,7 +46,9 @@ def model_lora_keys_clip(model, key_map={}):
     return key_maps
 
 
-def model_lora_keys_unet(model, key_map={}):
+def model_lora_keys_unet(model, key_map=None):
+    if key_map is None:
+        key_map = {}
     model_keys, key_maps = get_function("model_lora_keys_unet")(model, key_map)
 
     # TODO: OFT
@@ -89,7 +98,7 @@ def merge_lora_to_weight(patches, weight, key="online_lora", computation_dtype=t
         offset = p[3]
         function = p[4]
         if function is None:
-            function = lambda a: a
+            function = identity
 
         old_weight = None
         if offset is not None:
@@ -322,6 +331,8 @@ class LoraLoader:
         self._model = weakref.ref(model)
         self.backup = {}
         self.online_backup = []
+        # refresh() compares this against str(list(lora_patches.keys())), so the
+        # sentinel has to be the same string an empty patch set produces.
         self.loaded_hash = str([])
 
     @property
@@ -330,9 +341,9 @@ class LoraLoader:
 
     @torch.inference_mode()
     def refresh(self, lora_patches, offload_device=torch.device("cpu"), force_refresh=False):
-        hashes = str(list(lora_patches.keys()))
+        patch_signature = tuple(lora_patches)
 
-        if hashes == self.loaded_hash and not force_refresh:
+        if patch_signature == self.loaded_hash and not force_refresh:
             return
 
         # Merge Patches
@@ -425,5 +436,5 @@ class LoraLoader:
         # End
 
         set_parameter_devices(self.model, parameter_devices=parameter_devices)
-        self.loaded_hash = hashes
+        self.loaded_hash = patch_signature
         return

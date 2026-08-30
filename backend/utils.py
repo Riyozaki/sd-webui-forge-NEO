@@ -203,7 +203,7 @@ def process_img(x, index=0, h_offset=0, w_offset=0):
     w_offset = (w_offset + (patch_size // 2)) // patch_size
 
     img_ids = torch.zeros((h_len, w_len, 3), device=x.device, dtype=x.dtype)
-    img_ids[:, :, 0] = img_ids[:, :, 1] + index
-    img_ids[:, :, 1] = img_ids[:, :, 1] + torch.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, device=x.device, dtype=x.dtype).unsqueeze(1)
-    img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, device=x.device, dtype=x.dtype).unsqueeze(0)
+    img_ids[:, :, 0].fill_(index)
+    img_ids[:, :, 1] = torch.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, device=x.device, dtype=x.dtype).unsqueeze(1)
+    img_ids[:, :, 2] = torch.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, device=x.device, dtype=x.dtype).unsqueeze(0)
     return img, repeat(img_ids, "h w c -> b (h w) c", b=bs)
