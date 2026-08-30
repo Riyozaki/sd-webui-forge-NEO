@@ -30,6 +30,7 @@ class ExtraNetworksPageLora(ui_extra_networks.ExtraNetworksPage):
             search_terms.append(lora_on_disk.hash)
         item = {
             "name": name,
+            "prompt_name": alias,
             "filename": lora_on_disk.filename,
             "shorthash": lora_on_disk.shorthash,
             "preview": self.find_preview(path) or self.find_embedded_preview(path, name, lora_on_disk.metadata),

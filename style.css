@@ -1074,6 +1074,32 @@ footer {
     box-shadow: 0 0 2px 0.3em rgba(0, 128, 255, 0.35);
 }
 
+.extra-network-pane .card.extra-network-active {
+    /* Plain colour first: browsers without color-mix() drop the whole
+       declaration, which would take the ring with it. */
+    box-shadow: 0 0 0 3px var(--primary-500), 0 0 14px rgba(0, 128, 255, 0.45);
+    box-shadow: 0 0 0 3px var(--primary-500), 0 0 14px color-mix(in srgb, var(--primary-500) 45%, transparent);
+}
+
+.extra-network-pane .card.extra-network-active:hover {
+    box-shadow: 0 0 0 3px var(--primary-500), 0 0 14px rgba(0, 128, 255, 0.55);
+}
+
+.extra-network-pane .card.extra-network-active::after {
+    content: "✓ active";
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 2;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    background: var(--primary-500);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 650;
+    pointer-events: none;
+}
+
 .extra-network-pane .card .actions .additional {
     display: none;
 }

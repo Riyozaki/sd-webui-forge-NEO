@@ -50,22 +50,28 @@ def get_tree(paths: Union[str, list[str]], items: dict[str, ExtraNetworksItem]) 
     if isinstance(paths, (str,)):
         paths = [paths]
 
-    def _get_tree(_paths: list[str], _root: str):
+    def _get_tree(_paths: list[str], _root: str, visited: set[str]):
         _res = {}
         for path in _paths:
             relpath = os.path.relpath(path, _root)
             if os.path.isdir(path):
-                dir_items = os.listdir(path)
-                # Ignore empty directories.
-                if not dir_items:
+                realpath = os.path.realpath(path)
+                if realpath in visited:
                     continue
-                dir_tree = _get_tree([os.path.join(path, x) for x in dir_items], _root)
+                visited.add(realpath)
+                try:
+                    with os.scandir(path) as entries:
+                        child_paths = [entry.path for entry in entries]
+                except OSError:
+                    continue
+                # Ignore empty directories and symlink cycles.
+                if not child_paths:
+                    continue
+                dir_tree = _get_tree(child_paths, _root, visited)
                 # We only want to store non-empty folders in the tree.
                 if dir_tree:
                     _res[relpath] = dir_tree
-            else:
-                if path not in items:
-                    continue
+            elif path in items:
                 # Add the ExtraNetworksItem to the result.
                 _res[relpath] = items[path]
         return _res
@@ -79,7 +85,7 @@ def get_tree(paths: Union[str, list[str]], items: dict[str, ExtraNetworksItem]) 
         root = os.path.dirname(path)
         relpath = os.path.relpath(path, root)
         # Wrap the path in a list since that is what the `_get_tree` expects.
-        res[relpath] = _get_tree([path], root)
+        res[relpath] = _get_tree([path], root, set())
         if res[relpath]:
             # We need to pull the inner path out one for these root dirs.
             res[relpath] = res[relpath][relpath]
@@ -350,6 +356,7 @@ class ExtraNetworksPage:
             "local_preview": quote_js(item["local_preview"]),
             "metadata_button": btn_metadata,
             "name": html.escape(item["name"]),
+            "prompt_name": html.escape(str(item.get("prompt_name", item["name"])), quote=True),
             "prompt": item.get("prompt", None),
             "save_card_preview": html.escape(f"return saveCardPreview(event, '{tabname}', '{item['local_preview']}');"),
             "search_only": " search_only" if search_only else "",
@@ -528,33 +535,40 @@ class ExtraNetworksPage:
 
         subdirs = {}
         for parentdir in [os.path.abspath(x) for x in self.allowed_directories_for_previews()]:
-            for root, dirs, _ in sorted(os.walk(parentdir, followlinks=True), key=lambda x: shared.natural_sort_key(x[0])):
-                for dirname in sorted(dirs, key=shared.natural_sort_key):
-                    x = os.path.join(root, dirname)
+            visited = set()
+            for root, dirs, files in os.walk(parentdir, followlinks=True):
+                realpath = os.path.realpath(root)
+                if realpath in visited:
+                    dirs.clear()
+                    continue
+                visited.add(realpath)
+                dirs.sort(key=shared.natural_sort_key)
+                if root == parentdir:
+                    continue
 
-                    if not os.path.isdir(x):
-                        continue
+                subdir = os.path.abspath(root)[len(parentdir):]
+                if shared.opts.extra_networks_dir_button_function:
+                    if not subdir.startswith(os.path.sep):
+                        subdir = os.path.sep + subdir
+                else:
+                    subdir = subdir.lstrip(os.path.sep)
 
-                    subdir = os.path.abspath(x)[len(parentdir):]
+                if (dirs or files) and not subdir.endswith(os.path.sep):
+                    subdir += os.path.sep
 
-                    if shared.opts.extra_networks_dir_button_function:
-                        if not subdir.startswith(os.path.sep):
-                            subdir = os.path.sep + subdir
-                    else:
-                        while subdir.startswith(os.path.sep):
-                            subdir = subdir[1:]
+                if (os.path.sep + "." in subdir or subdir.startswith(".")) and not shared.opts.extra_networks_show_hidden_directories:
+                    dirs.clear()
+                    continue
 
-                    is_empty = len(os.listdir(x)) == 0
-                    if not is_empty and not subdir.endswith(os.path.sep):
-                        subdir = subdir + os.path.sep
-
-                    if (os.path.sep + "." in subdir or subdir.startswith(".")) and not shared.opts.extra_networks_show_hidden_directories:
-                        continue
-
-                    subdirs[subdir] = 1
+                subdirs[subdir] = 1
 
         if subdirs:
-            subdirs = {"": 1, **subdirs}
+            # os.walk yields directories in filesystem order, which is not
+            # stable between machines. Keep the buttons naturally sorted.
+            subdirs = {
+                "": 1,
+                **{key: subdirs[key] for key in sorted(subdirs, key=shared.natural_sort_key)},
+            }
 
         subdirs_html = "".join([f"""
         <button class='lg secondary gradio-button custom-button{" search-all" if subdir == "" else ""}' onclick='extraNetworksSearchButton("{tabname}", "{self.extra_networks_tabname}", event)'>

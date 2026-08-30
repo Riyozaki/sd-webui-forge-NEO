@@ -10,14 +10,15 @@ function toggleCss(key, css, enable) {
         document.head.removeChild(style);
     }
     if (style) {
-        style.innerHTML == "";
-        style.appendChild(document.createTextNode(css));
+        style.textContent = css;
     }
 }
 
 function setupExtraNetworksForTab(tabname) {
     function registerPrompt(tabname, id) {
         let textarea = gradioApp().querySelector("#" + id + " > label > textarea");
+
+        if (!textarea) return;
 
         if (!activePromptTextarea[tabname]) {
             activePromptTextarea[tabname] = textarea;
@@ -26,17 +27,22 @@ function setupExtraNetworksForTab(tabname) {
         textarea.addEventListener("focus", function () {
             activePromptTextarea[tabname] = textarea;
         });
+        textarea.addEventListener("input", function () {
+            scheduleActiveLoraCards(tabname);
+        });
     }
 
     let tabnav = gradioApp().querySelector(
         "#" + tabname + "_extra_tabs > div.tab-nav",
     );
+    if (!tabnav) return;
+
     let controlsDiv = document.createElement("DIV");
     controlsDiv.classList.add("extra-networks-controls-div");
     tabnav.appendChild(controlsDiv);
-    tabnav.insertBefore(controlsDiv, null);
 
     let this_tab = gradioApp().querySelector("#" + tabname + "_extra_tabs");
+    if (!this_tab) return;
     this_tab
         .querySelectorAll(":scope > [id^='" + tabname + "_']")
         .forEach(function (elem) {
@@ -58,72 +64,78 @@ function setupExtraNetworksForTab(tabname) {
                 return; // `return` is equivalent of `continue` but for forEach loops.
             }
 
+            let filterFrame = null;
             let applyFilter = function (force) {
-                let searchTerm = search.value.toLowerCase();
+                const searchTerm = search.value.trim().toLowerCase();
+                const searchParts = searchTerm.split(/\s+/).filter(Boolean);
 
-                // get UI preset
-                radioUI = gradioApp().querySelector("#forge_ui_preset");
-                radioButtons = radioUI.getElementsByTagName("input");
-                UIresult = 3; //  default to 'all'
-                for (i = 0; i < radioButtons.length; i++) {
+                const radioUI = gradioApp().querySelector("#forge_ui_preset");
+                const radioButtons = radioUI ? radioUI.getElementsByTagName("input") : [];
+                let UIresult = 3; // default to 'all'
+                for (let i = 0; i < radioButtons.length; i++) {
                     if (radioButtons[i].checked) {
                         UIresult = i;
+                        break;
                     }
                 }
 
-                gradioApp()
-                    .querySelectorAll("#" + tabname + "_extra_tabs div.card")
-                    .forEach(function (elem) {
-                        let searchOnly = elem.querySelector(".search_only");
-                        let text = Array.prototype.map
-                            .call(
-                                elem.querySelectorAll(".search_terms, .description"),
-                                function (t) {
-                                    return t.textContent.toLowerCase();
-                                },
-                            )
-                            .join(" ");
+                const cards = gradioApp().querySelectorAll(
+                    "#" + tabname_full + "_cards > div.card",
+                );
+                cards.forEach(function (elem) {
+                    const searchOnly = elem.querySelector(".search_only");
+                    let text = elem.dataset.searchText;
+                    if (text === undefined) {
+                        text = Array.from(
+                            elem.querySelectorAll(".search_terms, .description"),
+                            (node) => node.textContent.toLowerCase(),
+                        ).join(" ");
+                        elem.dataset.searchText = text;
+                    }
 
-                        let visible = true;
-                        if (searchOnly && searchTerm.length < 4) visible = false;
+                    let visible = !(searchOnly && searchTerm.length < 4);
+                    if (visible && searchParts.length) {
+                        visible = searchParts.every((partial) => text.includes(partial));
+                    }
 
-                        splitSearch = searchTerm.split(" ");
-                        splitSearch.forEach(function (partial) {
-                            if (text.indexOf(partial) == -1) visible = false;
-                        });
-
-                        sdversion = elem.getAttribute("data-sort-sdversion");
-                        if (sdversion == null);
-                        else if (sdversion == "SdVersion.Unknown");
-                        else if (opts.lora_filter_disabled == True);
-                        else if (UIresult == 3); //  'all'
-                        else if (UIresult == 0) {
-                            //  'sd'
-                            if (sdversion != "SdVersion.SD1")
-                                visible = false;
-                        } else if (UIresult == 1) {
-                            //  'xl'
-                            if (sdversion != "SdVersion.SDXL") visible = false;
-                        } else if (UIresult == 2) {
-                            //  'flux'
-                            if (sdversion != "SdVersion.Flux") visible = false;
+                    const sdversion = elem.dataset.sortSdversion;
+                    if (
+                        visible &&
+                        sdversion &&
+                        sdversion !== "SdVersion.Unknown" &&
+                        opts.lora_filter_disabled !== true &&
+                        UIresult !== 3
+                    ) {
+                        const expectedVersion = [
+                            "SdVersion.SD1",
+                            "SdVersion.SDXL",
+                            "SdVersion.Flux",
+                        ][UIresult];
+                        if (expectedVersion && sdversion !== expectedVersion) {
+                            visible = false;
                         }
+                    }
 
-                        if (visible) {
-                            elem.classList.remove("hidden");
-                        } else {
-                            elem.classList.add("hidden");
-                        }
-                    });
+                    elem.classList.toggle("hidden", !visible);
+                });
 
                 applySort(force);
             };
 
+            let scheduleFilter = function (force) {
+                if (filterFrame !== null) cancelAnimationFrame(filterFrame);
+                filterFrame = requestAnimationFrame(function () {
+                    filterFrame = null;
+                    applyFilter(force);
+                });
+            };
+
             let applySort = function (force) {
                 let cards = gradioApp().querySelectorAll(
-                    "#" + tabname_full + " div.card",
+                    "#" + tabname_full + "_cards > div.card",
                 );
                 let parent = gradioApp().querySelector("#" + tabname_full + "_cards");
+                if (!parent) return;
                 let reverse = sort_dir.dataset.sortdir == "Descending";
                 let activeSearchElem = gradioApp().querySelector(
                     "#" +
@@ -158,17 +170,15 @@ function setupExtraNetworksForTab(tabname) {
                     sortedCards.reverse();
                 }
 
-                parent.innerHTML = "";
-
                 let frag = document.createDocumentFragment();
                 sortedCards.forEach(function (card) {
                     frag.appendChild(card);
                 });
-                parent.appendChild(frag);
+                parent.replaceChildren(frag);
             };
 
             search.addEventListener("input", function () {
-                applyFilter();
+                scheduleFilter();
             });
             applySort();
             applyFilter();
@@ -179,6 +189,7 @@ function setupExtraNetworksForTab(tabname) {
             let controls = gradioApp().querySelector(
                 "#" + tabname_full + "_controls",
             );
+            if (!controls) return;
             controlsDiv.insertBefore(controls, null);
 
             if (elem.style.display != "none") {
@@ -188,6 +199,7 @@ function setupExtraNetworksForTab(tabname) {
 
     registerPrompt(tabname, tabname + "_prompt");
     registerPrompt(tabname, tabname + "_neg_prompt");
+    scheduleActiveLoraCards(tabname);
 }
 
 function extraNetworksMovePromptToTab(
@@ -277,6 +289,34 @@ function applyExtraNetworkSort(tabname_full) {
 let extraNetworksApplyFilter = {};
 let extraNetworksApplySort = {};
 let activePromptTextarea = {};
+let activeLoraFrames = {};
+
+function scheduleActiveLoraCards(tabname) {
+    if (activeLoraFrames[tabname]) cancelAnimationFrame(activeLoraFrames[tabname]);
+    activeLoraFrames[tabname] = requestAnimationFrame(function () {
+        delete activeLoraFrames[tabname];
+        const prompts = gradioApp().querySelectorAll(
+            `#${tabname}_prompt textarea, #${tabname}_neg_prompt textarea`,
+        );
+        const activeNames = new Set();
+        const loraPattern = /<lora:([^:>]+)(?::[^>]*)?>/gi;
+        prompts.forEach(function (textarea) {
+            for (const match of textarea.value.matchAll(loraPattern)) {
+                activeNames.add(match[1].trim().toLowerCase());
+            }
+        });
+        gradioApp()
+            .querySelectorAll(`#${tabname}_lora .card[data-prompt-name]`)
+            .forEach(function (card) {
+                const promptName = (card.dataset.promptName || "").toLowerCase();
+                const cardName = (card.dataset.name || "").toLowerCase();
+                card.classList.toggle(
+                    "extra-network-active",
+                    activeNames.has(promptName) || activeNames.has(cardName),
+                );
+            });
+    });
+}
 
 function setupExtraNetworks() {
     setupExtraNetworksForTab("txt2img");
@@ -878,16 +918,18 @@ function extraNetworksRefreshSingleCard(page, tabname, name) {
         function (data) {
             if (data && data.html) {
                 let card = gradioApp().querySelector(
-                    `#${tabname}_${page.replace(" ", "_")}_cards > .card[data-name="${name}"]`,
+                    `#${tabname}_${page.replace(" ", "_")}_cards > .card[data-name="${CSS.escape(name)}"]`,
                 );
 
                 let newDiv = document.createElement("DIV");
                 newDiv.innerHTML = data.html;
                 let newCard = newDiv.firstElementChild;
+                if (!card || !newCard) return;
 
                 newCard.style.display = "";
                 card.parentElement.insertBefore(newCard, card);
                 card.parentElement.removeChild(card);
+                if (page.toLowerCase() === "lora") scheduleActiveLoraCards(tabname);
             }
         },
     );

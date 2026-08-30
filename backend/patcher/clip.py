@@ -8,10 +8,12 @@ class JointTextEncoder(ModuleDict):
 
 
 class CLIP:
-    def __init__(self, model_dict={}, tokenizer_dict={}, no_init=False):
+    def __init__(self, model_dict=None, tokenizer_dict=None, no_init=False):
         if no_init:
             return
 
+        model_dict = {} if model_dict is None else model_dict
+        tokenizer_dict = {} if tokenizer_dict is None else tokenizer_dict
         load_device = memory_management.text_encoder_device()
         offload_device = memory_management.text_encoder_offload_device()
 

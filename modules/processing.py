@@ -509,9 +509,9 @@ class StableDiffusionProcessing:
 
 
 class Processed:
-    def __init__(self, p: StableDiffusionProcessing, images_list, seed=-1, info="", subseed=None, all_prompts=None, all_negative_prompts=None, all_seeds=None, all_subseeds=None, index_of_first_image=0, infotexts=None, comments="", extra_images_list=[]):
+    def __init__(self, p: StableDiffusionProcessing, images_list, seed=-1, info="", subseed=None, all_prompts=None, all_negative_prompts=None, all_seeds=None, all_subseeds=None, index_of_first_image=0, infotexts=None, comments="", extra_images_list=None):
         self.images = images_list
-        self.extra_images = extra_images_list
+        self.extra_images = extra_images_list if extra_images_list is not None else []
         self.prompt = p.prompt
         self.negative_prompt = p.negative_prompt
         self.seed = seed
