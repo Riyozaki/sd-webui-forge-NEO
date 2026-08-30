@@ -263,7 +263,7 @@ class ForgeOperations:
                 weight, bias = get_weight_and_bias(self)
                 num_spatial_dims = 1
                 output_padding = self._output_padding(x, output_size, self.stride, self.padding, self.kernel_size, num_spatial_dims, self.dilation)
-                return torch.nn.functional.conv_transpose2d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
+                return torch.nn.functional.conv_transpose1d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
 
     class ConvTranspose3d(torch.nn.ConvTranspose3d):
 
@@ -288,7 +288,7 @@ class ForgeOperations:
                 weight, bias = get_weight_and_bias(self)
                 num_spatial_dims = 3
                 output_padding = self._output_padding(x, output_size, self.stride, self.padding, self.kernel_size, num_spatial_dims, self.dilation)
-                return torch.nn.functional.conv_transpose2d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
+                return torch.nn.functional.conv_transpose3d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
 
     class GroupNorm(torch.nn.GroupNorm):
 

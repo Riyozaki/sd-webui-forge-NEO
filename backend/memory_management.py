@@ -978,26 +978,12 @@ def force_channels_last():
 
 
 def cast_to_device(tensor, device, dtype, copy=False):
-    device_supports_cast = False
-    if tensor.dtype == torch.float32 or tensor.dtype == torch.float16:
-        device_supports_cast = True
-    elif tensor.dtype == torch.bfloat16:
-        if hasattr(device, "type") and device.type.startswith("cuda"):
-            device_supports_cast = True
-        elif is_intel_xpu():
-            device_supports_cast = True
-
     non_blocking = device_should_use_non_blocking(device)
 
-    if device_supports_cast:
-        if copy:
-            if tensor.device == device:
-                return tensor.to(dtype, copy=copy, non_blocking=non_blocking)
-            return tensor.to(device, copy=copy, non_blocking=non_blocking).to(dtype, non_blocking=non_blocking)
-        else:
-            return tensor.to(device, non_blocking=non_blocking).to(dtype, non_blocking=non_blocking)
-    else:
-        return tensor.to(device, dtype, copy=copy, non_blocking=non_blocking)
+    # Convert placement and precision in one operation. The old two-stage path
+    # allocated a full-size intermediate whenever both changed, which inflated
+    # peak VRAM and transfer time while loading and applying LoRAs.
+    return tensor.to(device=device, dtype=dtype, copy=copy, non_blocking=non_blocking)
 
 
 def xformers_enabled():

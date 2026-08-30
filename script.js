@@ -118,20 +118,41 @@ function scheduleAfterUiUpdateCallbacks() {
 }
 
 let executedOnLoaded = false;
+let pendingUiMutations = [];
+let uiUpdateFrame = null;
+let uiUpdateTimer = null;
+
+function flushUiUpdates() {
+    uiUpdateFrame = null;
+    // requestAnimationFrame is throttled in background tabs, so the timeout
+    // below can win the race. Whichever fires first drains the queue.
+    clearTimeout(uiUpdateTimer);
+    const mutations = pendingUiMutations;
+    pendingUiMutations = [];
+
+    if (!executedOnLoaded && gradioApp().querySelector("#txt2img_prompt")) {
+        executedOnLoaded = true;
+        executeCallbacks(uiLoadedCallbacks);
+    }
+
+    executeCallbacks(uiUpdateCallbacks, mutations);
+    scheduleAfterUiUpdateCallbacks();
+
+    const newTab = get_uiCurrentTab();
+    if (newTab && newTab !== uiCurrentTab) {
+        uiCurrentTab = newTab;
+        executeCallbacks(uiTabChangeCallbacks);
+    }
+}
 
 document.addEventListener("DOMContentLoaded", function () {
-    const mutationObserver = new MutationObserver(function (m) {
-        if (!executedOnLoaded && gradioApp().querySelector("#txt2img_prompt")) {
-            executedOnLoaded = true;
-            executeCallbacks(uiLoadedCallbacks);
-        }
-
-        executeCallbacks(uiUpdateCallbacks, m);
-        scheduleAfterUiUpdateCallbacks();
-        const newTab = get_uiCurrentTab();
-        if (newTab && newTab !== uiCurrentTab) {
-            uiCurrentTab = newTab;
-            executeCallbacks(uiTabChangeCallbacks);
+    const mutationObserver = new MutationObserver(function (mutations) {
+        pendingUiMutations.push(...mutations);
+        if (uiUpdateFrame === null) {
+            // Gradio can emit dozens of observer notifications while rendering one
+            // update. Process them once per paint to avoid repeated DOM traversals.
+            uiUpdateFrame = requestAnimationFrame(flushUiUpdates);
+            uiUpdateTimer = setTimeout(flushUiUpdates, 100);
         }
     });
     mutationObserver.observe(gradioApp(), { childList: true, subtree: true });
@@ -149,16 +170,14 @@ document.addEventListener("keydown", function (e) {
     const isAltKey = e.altKey;
     const isEsc = e.key === "Escape";
 
-    const generateButton = get_uiCurrentTabContent().querySelector(
-        "button[id$=_generate]",
-    );
-    const interruptButton = get_uiCurrentTabContent().querySelector(
-        "button[id$=_interrupt]",
-    );
-    const skipButton =
-        get_uiCurrentTabContent().querySelector("button[id$=_skip]");
+    const currentTab = get_uiCurrentTabContent();
+    if (!currentTab) return;
 
-    if (isCtrlKey && isEnter) {
+    const generateButton = currentTab.querySelector("button[id$=_generate]");
+    const interruptButton = currentTab.querySelector("button[id$=_interrupt]");
+    const skipButton = currentTab.querySelector("button[id$=_skip]");
+
+    if (isCtrlKey && isEnter && generateButton && interruptButton) {
         if (interruptButton.style.display === "block") {
             interruptButton.click();
             const callback = (mutationList) => {
@@ -182,12 +201,12 @@ document.addEventListener("keydown", function (e) {
         e.preventDefault();
     }
 
-    if (isAltKey && isEnter) {
+    if (isAltKey && isEnter && skipButton) {
         skipButton.click();
         e.preventDefault();
     }
 
-    if (isEsc) {
+    if (isEsc && interruptButton) {
         const globalPopup = document.querySelector(".global-popup");
         const lightboxModal = document.querySelector("#lightboxModal");
         if (!globalPopup || globalPopup.style.display === "none") {

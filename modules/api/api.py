@@ -24,10 +24,10 @@ from PIL import PngImagePlugin
 
 import modules.shared as shared
 import modules.textual_inversion.textual_inversion
-from modules import errors, images, infotext_utils, postprocessing, restart, script_callbacks, scripts, sd_models, sd_samplers, sd_schedulers, shared_items, ui
+from modules import errors, images, infotext_utils, postprocessing, progress as progress_module, restart, script_callbacks, scripts, sd_models, sd_samplers, sd_schedulers, shared_items, ui
 from modules.api import models
 from modules.processing import StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, process_extra_images, process_images
-from modules.progress import add_task_to_queue, create_task_id, current_task, finish_task, start_task
+from modules.progress import add_task_to_queue, create_task_id, finish_task, start_task
 from modules.shared import cmd_opts, opts
 
 
@@ -637,7 +637,7 @@ class Api:
         if shared.state.current_image and not req.skip_current_image:
             current_image = encode_pil_to_base64(shared.state.current_image)
 
-        return models.ProgressResponse(progress=progress, eta_relative=eta_relative, state=shared.state.dict(), current_image=current_image, textinfo=shared.state.textinfo, current_task=current_task)
+        return models.ProgressResponse(progress=progress, eta_relative=eta_relative, state=shared.state.dict(), current_image=current_image, textinfo=shared.state.textinfo, current_task=progress_module.current_task)
 
     def interruptapi(self):
         shared.state.interrupt()
