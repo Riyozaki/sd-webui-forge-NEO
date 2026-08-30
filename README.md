@@ -108,6 +108,9 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
     - startup and every *refresh* are much faster with large checkpoint/LoRA collections
 - [X] Richer progress readout: `12/30 · 3.4 s/it · ETA 1:02`
 - [X] Configurable **PNG compression level** *(lossless, purely speed vs. file size)*
+- [X] Optional **TeaCache**
+    - reuses the previous UNet residual when the timestep embedding has barely moved
+    - **off by default** - it is an approximation; see [TeaCache](#teacache)
 - [X] No longer `git` `clone` any repository on fresh install
 - [X] Remove unused `cmd_args`
 - [X] Remove unused `args_parser`
@@ -229,6 +232,34 @@ Since 15.04.2026 Civitai is split across two sites, and both are supported:
 
 API keys (needed for models that require an account) are set in
 **Settings &rarr; Neo Optimizations &rarr; Civitai**; each site needs its own key.
+
+<br>
+
+## TeaCache
+
+*Settings &rarr; Neo Optimizations &rarr; Performance*
+
+TeaCache skips UNet evaluations whose result would barely change: while the
+timestep embedding keeps moving smoothly, the denoiser output of a step is
+reconstructed as `x + previous_residual` instead of being computed again.
+Typical skip rates are 20-50 % of the steps.
+
+> [!Warning]
+> **This is an approximation.** The default threshold of `0` leaves every result
+> bit-exact. Higher values are faster and progressively less faithful; the console
+> prints the achieved skip rate (`TeaCache: skipped 12/30 steps (40%)`) after every
+> generation so the threshold can be tuned from evidence rather than from hope.
+
+| Setting | Meaning |
+| - | - |
+| `TeaCache threshold` | `0` disables it; start around `0.05` - `0.15` |
+| `TeaCache warmup` | fraction of the first steps that are always computed |
+
+Two safety properties worth knowing: the cache resets at the beginning and the
+end of every sampling call (so a hires pass or a new batch can never reuse a
+stale residual), and when the conditional/unconditional pass has to be split
+into two forward passes only the first one is cached - the two halves can never
+be mixed up.
 
 <br>
 

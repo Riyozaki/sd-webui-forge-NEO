@@ -44,8 +44,78 @@ class KModel(torch.nn.Module):
                     extra = extra.to(dtype)
             extra_conds[o] = extra
 
-        model_output = self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds).float()
+        model_output = self._run_diffusion_model(xc, t, context, control, transformer_options, extra_conds).float()
         return self.predictor.calculate_denoised(sigma, model_output, x)
+
+    def _run_diffusion_model(self, xc, t, context, control, transformer_options, extra_conds):
+        """Single entry point for the denoiser, so the cache has exactly one place to hook into."""
+
+        def run():
+            return self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
+
+        try:
+            from modules import neo_cache
+
+            cache = neo_cache.teacache
+        except Exception:
+            return run()
+
+        threshold, _ = cache.settings()
+        if threshold <= 0 or cache.unsupported:
+            return run()
+
+        timestep_value = self._timestep_value(t)
+
+        # a split step (cond and uncond in two separate calls) must not reuse the
+        # residual of its other half
+        if cache.is_repeat_call(timestep_value):
+            return run()
+
+        emb = self._time_embedding(t, dtype=xc.dtype)
+        if emb is None or timestep_value is None:
+            cache.unsupported = True
+            return run()
+
+        if not cache.should_compute(emb, xc):
+            out = cache.skip(xc)
+        else:
+            out = run()
+            cache.update(emb, out, xc)
+
+        cache.mark_step(timestep_value)
+        return out
+
+    @staticmethod
+    def _timestep_value(t):
+        """The current timestep as a Python float; ``None`` if it cannot be read."""
+        try:
+            return float(t.detach().reshape(-1)[0].item())
+        except Exception:
+            return None
+
+    def _time_embedding(self, t, dtype=None):
+        """The timestep embedding used to decide whether a step can be skipped.
+
+        ``None`` means "this architecture has nothing we can measure", which
+        disables the cache for the rest of the sampling run.
+        """
+        try:
+            from backend.nn.unet import timestep_embedding
+
+            model = self.diffusion_model
+            channels = getattr(model, "model_channels", None)
+            time_embed = getattr(model, "time_embed", None)
+
+            if channels is None or time_embed is None:
+                return None
+
+            t_emb = timestep_embedding(t, channels)
+            if dtype is not None:
+                t_emb = t_emb.to(dtype)
+
+            return time_embed(t_emb)
+        except Exception:
+            return None
 
     def memory_required(self, input_shape: list[int]) -> float:
         """https://github.com/comfyanonymous/ComfyUI/blob/v0.3.56/comfy/model_base.py#L350"""

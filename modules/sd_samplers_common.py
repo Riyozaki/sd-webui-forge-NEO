@@ -271,6 +271,10 @@ class Sampler:
         state.sampling_steps = steps
         state.sampling_step = 0
 
+        from modules import neo_cache
+
+        neo_cache.teacache.begin(steps)
+
         try:
             # [NEO] cuDNN auto-tuning & friends, applied for the duration of this
             # sampling call only (see modules/neo_tuning.py).
@@ -283,6 +287,10 @@ class Sampler:
             return self.last_latent
         except InterruptedException:
             return self.last_latent
+        finally:
+            # always drop the cached tensors, even on interrupt, so they cannot
+            # pin VRAM until the next job
+            neo_cache.teacache.finish()
 
     def number_of_needed_noises(self, p):
         return p.steps

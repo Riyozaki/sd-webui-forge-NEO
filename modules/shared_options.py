@@ -571,6 +571,15 @@ options_templates.update(
             "neo_fast_sampling_path": OptionInfo(True, "Fast path for the common single-condition case").info("skips the per-step mask accumulators when the whole latent is covered without a mask"),
             "neo_sage_variant": OptionInfo("auto", "SageAttention kernel", gr.Radio, {"choices": ["auto", "sage", "sage_pp", "sage_qk_int8_pv_fp16"]}).info("only used when SageAttention is installed; 'sage_pp' is the int8/fp8 kernel of SageAttention 2++"),
             "neo_parallel_model_scan": OptionInfo(True, "Scan the model folders with multiple threads").info("makes startup and every 'refresh' faster with large checkpoint/LoRA collections"),
+            "neo_teacache_divider": OptionHTML(
+                """
+                <b>TeaCache</b> &mdash; reuse the previous UNet residual when the timestep embedding has barely moved.
+                <br><b>This is an approximation:</b> keep it at <code>0</code> for bit-exact results.
+                The achieved skip rate is printed in the console after every generation.
+                """
+            ),
+            "neo_teacache_threshold": OptionInfo(0.0, "TeaCache threshold", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}).info("0 disables it; start around 0.05-0.15 and watch the reported skip rate"),
+            "neo_teacache_warmup": OptionInfo(0.1, "TeaCache warmup", gr.Slider, {"minimum": 0.0, "maximum": 0.5, "step": 0.05}).info("fraction of the first steps that are always computed; protects the steps where the image is formed"),
         },
     )
 )
