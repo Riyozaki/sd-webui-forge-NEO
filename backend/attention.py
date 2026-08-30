@@ -21,12 +21,53 @@ if memory_management.xformers_enabled():
 IS_SAGE_2 = False
 """SageAttention 2 has looser restrictions, allowing it to work on more models (e.g. SD1)"""
 
+SAGE_VARIANT = "auto"
+"""[NEO] Which SageAttention kernel to use.  Mirrors the 'SageAttention kernel'
+setting; see modules/neo_tuning.py.  One of ``auto`` / ``sage`` / ``sage_pp`` /
+``sage_qk_int8_pv_fp16``."""
+
+_SAGE_FN = None
+_SAGE_FN_NAME = None
+
 if memory_management.sage_enabled():
     import importlib.metadata
 
     from sageattention import sageattn
 
     IS_SAGE_2 = importlib.metadata.version("sageattention").startswith("2")
+
+    def resolve_sage_fn(name="auto"):
+        """Pick the concrete SageAttention kernel, caching the lookup.
+
+        ``sageattn`` itself already dispatches to the best available kernel, so
+        ``auto`` simply uses it.  The explicit variants are there for people who
+        measured a difference on their GPU; anything unavailable degrades to the
+        dispatcher instead of failing.
+        """
+        global _SAGE_FN, _SAGE_FN_NAME
+
+        if _SAGE_FN is not None and _SAGE_FN_NAME == name:
+            return _SAGE_FN
+
+        fn = sageattn
+
+        if name in ("sage_pp", "sage_qk_int8_pv_fp16"):
+            import importlib
+
+            module = "sageattention"
+            wanted = "sageattn_qk_int8_pv_fp8_cuda++" if name == "sage_pp" else "sageattn_qk_int8_pv_fp16_cuda"
+            try:
+                fn = getattr(importlib.import_module(module), wanted)
+            except Exception:
+                fn = sageattn
+
+        _SAGE_FN, _SAGE_FN_NAME = fn, name
+        return fn
+
+else:
+
+    def resolve_sage_fn(name="auto"):
+        return None
 
 if memory_management.flash_enabled():
     from flash_attn import flash_attn_func
@@ -43,16 +84,36 @@ if memory_management.flash_enabled():
 FORCE_UPCAST_ATTENTION_DTYPE = memory_management.force_upcast_attention_dtype()
 
 
+_XFORMERS_FLASH_OP_CACHE = {}
+"""[NEO] `fw.supports(...)` walks the whole xformers dispatch table and is called
+once per attention layer per tile - which, for a tiled VAE decode, is thousands of
+times.  The answer only depends on the shapes and the dtype, so cache it."""
+
+
 def get_xformers_flash_attention_op(q, k, v):
+    try:
+        key = (tuple(q.shape), tuple(k.shape), tuple(v.shape), q.dtype, q.device)
+    except Exception:
+        key = None
+
+    if key is not None and key in _XFORMERS_FLASH_OP_CACHE:
+        return _XFORMERS_FLASH_OP_CACHE[key]
+
+    result = None
     try:
         flash_attention_op = xformers.ops.MemoryEfficientAttentionFlashAttentionOp
         fw, bw = flash_attention_op
         if fw.supports(xformers.ops.fmha.Inputs(query=q, key=k, value=v, attn_bias=None)):
-            return flash_attention_op
+            result = flash_attention_op
     except Exception as e:
         display_once(e, "get_xformers_flash_attention_op")
 
-    return None
+    if key is not None:
+        if len(_XFORMERS_FLASH_OP_CACHE) > 512:
+            _XFORMERS_FLASH_OP_CACHE.clear()
+        _XFORMERS_FLASH_OP_CACHE[key] = result
+
+    return result
 
 
 def get_attn_precision(attn_precision=torch.float32):
@@ -306,7 +367,8 @@ def attention_sage(q, k, v, heads, mask=None, attn_precision=None, skip_reshape=
             mask = mask.unsqueeze(1)
 
     try:
-        out = sageattn(q, k, v, attn_mask=mask, is_causal=False, tensor_layout=tensor_layout)
+        sage_fn = resolve_sage_fn(SAGE_VARIANT)
+        out = sage_fn(q, k, v, attn_mask=mask, is_causal=False, tensor_layout=tensor_layout)
     except Exception as e:
         display_once(e, "attention_sage")
         if tensor_layout == "NHD":

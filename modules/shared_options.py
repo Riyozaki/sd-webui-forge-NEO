@@ -568,6 +568,7 @@ options_templates.update(
             "neo_tf32": OptionInfo(False, "Allow TF32 for fp32 math").info("only affects <b>fp32</b> models (see the 'GPU Weights' settings); a tiny precision change"),
             "neo_fp16_accumulation": OptionInfo(False, "Allow fp16 accumulation in fp16 matmuls").info("same as the '--fast-fp16' CMD flag; a tiny precision change"),
             "neo_fast_sampling_path": OptionInfo(True, "Fast path for the common single-condition case").info("skips the per-step mask accumulators when the whole latent is covered without a mask"),
+            "neo_sage_variant": OptionInfo("auto", "SageAttention kernel", gr.Radio, {"choices": ["auto", "sage", "sage_pp", "sage_qk_int8_pv_fp16"]}).info("only used when SageAttention is installed; 'sage_pp' is the int8/fp8 kernel of SageAttention 2++"),
         },
     )
 )

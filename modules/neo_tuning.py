@@ -93,9 +93,11 @@ def sampling_context():
         restore.append((setter, old))
 
     try:
+        from backend import attention
         from backend.sampling import sampling_function
 
         sampling_function.FAST_SAMPLING_PATH = bool(getattr(shared.opts, "neo_fast_sampling_path", True))
+        attention.SAGE_VARIANT = getattr(shared.opts, "neo_sage_variant", "auto") or "auto"
     except Exception:
         pass
 
