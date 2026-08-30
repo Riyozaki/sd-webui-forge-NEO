@@ -835,9 +835,18 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
             res = process_images_inner(p)
 
     finally:
-        # restore original options
-        if p.override_settings_restore_afterwards:
-            set_config(stored_opts, save_config=False)
+        try:
+            # Restore per-job options even when generation fails.
+            if p.override_settings_restore_afterwards:
+                set_config(stored_opts, save_config=False)
+        finally:
+            try:
+                # Extra networks can own hooks and transient state; always give
+                # them a chance to clean up an interrupted generation.
+                if not p.disable_extra_networks and p.extra_network_data:
+                    extra_networks.deactivate(p, p.extra_network_data)
+            finally:
+                devices.torch_gc()
 
     return res
 
@@ -1146,11 +1155,6 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 index_of_first_image = 1
             if opts.grid_save:
                 images.save_image(grid, p.outpath_grids, "grid", p.all_seeds[0], p.all_prompts[0], opts.grid_format, info=infotext(use_main_prompt=True), short_filename=not opts.grid_extended_filename, p=p, grid=True)
-
-    if not p.disable_extra_networks and p.extra_network_data:
-        extra_networks.deactivate(p, p.extra_network_data)
-
-    devices.torch_gc()
 
     res = Processed(
         p,

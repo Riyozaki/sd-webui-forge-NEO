@@ -39,9 +39,12 @@ def wrap_gradio_gpu_call(func, extra_outputs=None):
                 res = func(*args, **kwargs)
                 progress.record_results(id_task, res)
             finally:
-                progress.finish_task(id_task)
-
-            shared.state.end()
+                try:
+                    progress.finish_task(id_task)
+                finally:
+                    # Always release previews and transient CUDA allocations,
+                    # even when generation or progress finalization fails.
+                    shared.state.end()
 
         return res
 
