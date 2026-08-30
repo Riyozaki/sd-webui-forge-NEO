@@ -66,6 +66,15 @@ def cudnn_benchmark_enabled() -> bool:
     except Exception:
         return False
 
+    try:
+        from backend.args import args
+
+        # auto-tuning and reproducible results are mutually exclusive
+        if getattr(args, "pytorch_deterministic", False):
+            return False
+    except Exception:
+        pass
+
     return not low_vram_mode()
 
 

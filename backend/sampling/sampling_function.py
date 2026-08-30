@@ -22,6 +22,13 @@ from backend.sampling.condition import (
 )
 
 
+def _strength_is_one(strength) -> bool:
+    try:
+        return math.isclose(float(strength), 1.0)
+    except Exception:
+        return False
+
+
 def get_area_and_mult(conds, x_in, timestep_in):
     area = (x_in.shape[2], x_in.shape[3], 0, 0)
     strength = 1.0
@@ -56,7 +63,7 @@ def get_area_and_mult(conds, x_in, timestep_in):
         mask = mask.unsqueeze(1).repeat(input_x.shape[0] // mask.shape[0], input_x.shape[1], 1, 1)
         mult = mask * strength
     elif (
-        math.isclose(strength, 1.0)
+        _strength_is_one(strength)
         and area[2] == 0
         and area[3] == 0
         and area[0] == x_in.shape[2]

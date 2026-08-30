@@ -20,6 +20,11 @@ function civitaiPickCard(card) {
     card.classList.add("civitai-card-selected");
     input.value = card.getAttribute("data-civitai-id");
     updateInput(input);
+
+    // A hidden button click is the most reliable way to get Gradio to send the
+    // (just updated) value back to Python.
+    var btn = gradioApp().getElementById("civitai_select_btn");
+    if (btn) btn.click();
 }
 
 function civitaiCurrentTab() {

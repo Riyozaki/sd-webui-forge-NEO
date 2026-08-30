@@ -341,7 +341,7 @@ def refresh_model_lists(model_type: str):
         errors.display(e, "civitai: refreshing model lists")
 
 
-def on_download(model_id, version_id, site, results, versions, progress=gr.Progress()):
+def on_download(model_id, version_id, site, results, versions):
     model = (results or {}).get(str(model_id))
     version = (versions or {}).get(str(version_id))
 
@@ -487,6 +487,9 @@ def on_ui_tabs():
         status = gr.HTML('<div class="civitai-empty">Ready.</div>', elem_id="civitai_status")
 
         selected_model = gr.Textbox(visible=False, elem_id="civitai_selected_model")
+        # A hidden button is the most reliable way to wake Python up from JS: the
+        # click submits the current (just updated) value of the textbox above.
+        select_btn = gr.Button(visible=False, elem_id="civitai_select_btn")
 
         with gr.Row(equal_height=False):
             with gr.Column(scale=3):
@@ -519,7 +522,7 @@ def on_ui_tabs():
             fn=lambda r, s: render_cards(r or {}, s), inputs=[results_state, site], outputs=[cards]
         )
 
-        selected_model.change(
+        select_btn.click(
             fn=on_select,
             inputs=[selected_model, site, results_state],
             outputs=[details, version_dd, versions_state],
