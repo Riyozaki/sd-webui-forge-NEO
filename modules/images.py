@@ -591,7 +591,9 @@ def save_image_with_geninfo(image, geninfo, filename, extension=None, existing_p
         else:
             pnginfo_data = None
 
-        image.save(filename, format=image_format, quality=opts.jpeg_quality, pnginfo=pnginfo_data)
+        # [NEO] PNG is lossless, so `compress_level` trades file size for speed and
+        # nothing else: 1 is several times faster than the default 6 for large images.
+        image.save(filename, format=image_format, quality=opts.jpeg_quality, pnginfo=pnginfo_data, compress_level=int(getattr(opts, "png_compress_level", 6) or 6))
 
     elif extension.lower() in (".jpg", ".jpeg", ".webp"):
         if image.mode == 'RGBA':

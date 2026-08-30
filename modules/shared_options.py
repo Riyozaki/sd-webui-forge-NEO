@@ -63,6 +63,7 @@ options_templates.update(
             "save_mask": OptionInfo(False, "For inpainting, save a copy of the greyscale mask"),
             "save_mask_composite": OptionInfo(False, "For inpainting, save the masked composite"),
             "jpeg_quality": OptionInfo(85, "JPEG Quality", gr.Slider, {"minimum": 1, "maximum": 100, "step": 1}),
+            "png_compress_level": OptionInfo(6, "PNG Compression Level", gr.Slider, {"minimum": 0, "maximum": 9, "step": 1}).info("PNG is lossless, so this only trades file size against speed; 1-3 is several times faster when saving many large images"),
             "webp_lossless": OptionInfo(False, "Lossless WebP"),
             "export_for_4chan": OptionInfo(True, "Save copies of large images as JPG").info("if the following limits are met"),
             "img_downscale_threshold": OptionInfo(4.0, "File Size limit for the above option", gr.Number).info("in MB"),

@@ -27,6 +27,9 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 
 #### New Features
 
+- [X] **Civitai / Civitai Red browser**
+    - search, inspect and download models from [civitai.com](https://civitai.com) *and* the age restricted [civitai.red](https://civitai.red)
+    - see [Civitai](#civitai) below
 - [X] Support [Wan 2.2](https://github.com/Wan-Video/Wan2.2)
     - `txt2img`, `img2img`, `txt2vid`, `img2vid`
 
@@ -91,6 +94,20 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 
 #### Optimizations
 
+- [X] Remove the per-step **device synchronisation** in the sampling loop
+    - `cond_mark` used to be rebuilt and copied from pageable CPU memory to the GPU on *every* step, which forced a full sync
+- [X] Skip the mask accumulators of `calc_cond_uncond_batch` for the common case
+    - one condition + one unconditional condition covering the whole latent: six latent-sized allocations and ~8 kernels less per step
+- [X] Auto-tune **cuDNN** convolutions while sampling
+    - disabled automatically in low VRAM mode
+- [X] Live preview is decoded on its own CUDA stream
+- [X] Cache the `xformers` flash-attention lookup
+    - it was re-done for every attention layer of every VAE tile
+- [X] Choose the **SageAttention** kernel (incl. the int8/fp8 `++` variant)
+- [X] Scan `models/` with a thread pool
+    - startup and every *refresh* are much faster with large checkpoint/LoRA collections
+- [X] Richer progress readout: `12/30 · 3.4 s/it · ETA 1:02`
+- [X] Configurable **PNG compression level** *(lossless, purely speed vs. file size)*
 - [X] No longer `git` `clone` any repository on fresh install
 - [X] Remove unused `cmd_args`
 - [X] Remove unused `args_parser`
@@ -188,6 +205,42 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - `--flash`: Install the `flash_attn` package to speed up generation
 - `--fast-fp16`: Enable the `allow_fp16_accumulation` option
     - requires PyTorch **2.7.0** +
+
+<br>
+
+## Civitai
+
+A **Civitai** tab lets you find and download models without leaving the WebUI.
+
+Since 15.04.2026 Civitai is split across two sites, and both are supported:
+
+| Site | Content |
+| - | - |
+| [civitai.com](https://civitai.com) | SFW |
+| [civitai.red](https://civitai.red) | age restricted |
+
+- search by name/tag/creator, and filter by **type** (`Checkpoint`, `LORA`, `LoCon`, `DoRA`, `TextualInversion`, `Controlnet`, `VAE`, ...), **base model** (`SDXL 1.0`, `Flux.1 D`, `Pony`, `Illustrious`, ...), **sort order** and **period**
+- *Open URL / hash*: paste a Civitai link, a model id, or the `AutoV2`/`SHA256` hash of a local file to jump straight to it
+- downloads run in the background with **live progress** (bytes, speed, ETA), support **resume** and use multiple connections
+- every download is written into the matching folder under `models/` and gets a `.json`
+  sidecar plus a preview image, so it shows up in **Extra Networks** with a thumbnail,
+  its description and its trigger words
+- trigger words can be copied into the positive prompt with one click
+
+API keys (needed for models that require an account) are set in
+**Settings &rarr; Neo Optimizations &rarr; Civitai**; each site needs its own key.
+
+<br>
+
+## Benchmarking
+
+`benchmark_neo.py` runs the real pipeline several times and reports timings, so the
+settings in **Settings &rarr; Neo Optimizations** can be measured instead of guessed at:
+
+```bash
+python benchmark_neo.py --steps 20 --width 1024 --height 1024 --runs 3
+python benchmark_neo.py --ab neo_cudnn_benchmark
+```
 
 <br>
 
