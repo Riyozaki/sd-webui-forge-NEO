@@ -284,12 +284,12 @@ class LauncherFileTests(unittest.TestCase):
     """The .bat files are the whole point of the one click, so guard them."""
 
     def test_the_entry_points_exist(self):
-        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat"):
+        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat", "install-cpu.bat"):
             with self.subTest(name=name):
                 self.assertTrue((REPOSITORY_ROOT / name).is_file())
 
     def test_batch_files_are_crlf_and_ascii_only(self):
-        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat"):
+        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat", "install-cpu.bat"):
             with self.subTest(name=name):
                 data = (REPOSITORY_ROOT / name).read_bytes()
                 self.assertIn(b"\r\n", data)
@@ -351,6 +351,11 @@ class LauncherFileTests(unittest.TestCase):
         # you cannot pass a flag by double-clicking a bat file
         data = (REPOSITORY_ROOT / "doctor.bat").read_text(encoding="ascii")
         self.assertIn("call install.bat --doctor", data)
+
+    def test_cpu_install_is_one_click_too(self):
+        # a flag cannot be passed by double-clicking
+        data = (REPOSITORY_ROOT / "install-cpu.bat").read_text(encoding="ascii")
+        self.assertIn("call install.bat --cpu", data)
 
     def test_install_bat_leaves_a_shortcut_to_start_from(self):
         data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
