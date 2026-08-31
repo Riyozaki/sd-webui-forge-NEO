@@ -57,3 +57,52 @@ function civitaiCopyWords(link) {
         link.textContent = "copy trigger words to the positive prompt";
     }, 1500);
 }
+
+// Update checking: "Check for updates" starts a background thread in Python,
+// this poll keeps the tab in sync until the thread reports it is done.
+
+function civitaiUpdatesRunning() {
+    var box = gradioApp().getElementById("civitai_updates_status");
+    var marker = box && box.querySelector("[data-running]");
+    return marker ? marker.getAttribute("data-running") === "1" : false;
+}
+
+function civitaiPollUpdates() {
+    if (!civitaiUpdatesRunning()) {
+        return;
+    }
+
+    var btn = gradioApp().getElementById("civitai_updates_poll");
+    if (btn) {
+        btn.click();
+    }
+
+    setTimeout(civitaiPollUpdates, 1200);
+}
+
+function civitaiUpdate(button) {
+    var box = gradioApp().getElementById("civitai_update_pick");
+    if (!box) return;
+
+    var input = box.querySelector("textarea") || box.querySelector("input");
+    if (!input) return;
+
+    input.value = button.getAttribute("data-hash");
+    updateInput(input);
+
+    var btn = gradioApp().getElementById("civitai_update_pick_btn");
+    if (btn) btn.click();
+
+    button.disabled = true;
+    button.textContent = "queued";
+}
+
+onUiUpdate(function () {
+    var start = gradioApp().getElementById("civitai_update_check");
+    if (!start || start.dataset.pollHooked) return;
+
+    start.dataset.pollHooked = "1";
+    start.addEventListener("click", function () {
+        setTimeout(civitaiPollUpdates, 1000);
+    });
+});

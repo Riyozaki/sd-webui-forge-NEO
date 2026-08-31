@@ -15,6 +15,7 @@ from __future__ import annotations
 import html as html_lib
 import os
 import sys
+import threading
 import time
 
 import gradio as gr
@@ -241,6 +242,246 @@ def render_downloads() -> str:
 
     out.append("</div>")
     return "".join(out)
+
+
+# --------------------------------------------------------------------------- update check
+
+# Comparing every installed network with the site takes two requests each, so
+# the check runs in a thread and the tab polls for its state.
+UPDATE_STATE: dict = {
+    "running": False,
+    "checked": 0,
+    "total": 0,
+    "skipped": 0,
+    "items": {},
+    "error": "",
+    "finished_at": 0.0,
+}
+
+UPDATE_HELP = (
+    '<div class="civitai-hint">Compares the hash of every installed LoRA with '
+    "Civitai. Nothing is downloaded and no file is hashed again &mdash; networks "
+    "Forge has not hashed yet are skipped, so open the <i>Extra Networks</i> tab "
+    "once if they are missing.</div>"
+)
+
+
+def lora_networks() -> tuple[list[dict], int]:
+    """Installed networks, split into 'has a hash' and 'has not', without hashing.
+
+    The hash Civitai indexes is the same AutoV2 value Forge already stores for
+    every network, so an update check never touches the disk.
+    """
+    import sys
+
+    module = sys.modules.get("networks")
+    if module is None:
+        try:
+            from modules import paths_internal
+
+            scripts = os.path.join(paths_internal.extensions_builtin_dir, "sd_forge_lora", "scripts")
+            if os.path.isdir(scripts) and scripts not in sys.path:
+                sys.path.insert(0, scripts)
+            import networks as module  # noqa: F811
+        except Exception:
+            return [], 0
+
+    available = getattr(module, "available_networks", None) or {}
+
+    known: list[dict] = []
+    total = 0
+    for name, net in available.items():
+        total += 1
+        file_hash = str(getattr(net, "hash", "") or "").strip()
+        if len(file_hash) != 64:
+            continue
+        known.append(
+            {
+                "name": str(getattr(net, "alias", "") or name),
+                "file": str(getattr(net, "filename", "") or ""),
+                "hash": file_hash,
+            }
+        )
+
+    known.sort(key=lambda entry: entry["name"].lower())
+    return known, total
+
+
+def render_updates_status() -> str:
+    state = UPDATE_STATE
+
+    if state["running"]:
+        text = f'Checking {state["checked"]} of {state["total"]} installed networks&hellip;'
+        return f'<div class="civitai-progress" data-running="1">{text}</div>'
+
+    if state["error"]:
+        return f'<div class="civitai-error-box" data-running="0">{esc(state["error"])}</div>'
+
+    if not state["finished_at"]:
+        return '<div class="civitai-empty" data-running="0">Not checked yet.</div>'
+
+    updates = len(state["items"])
+    when = time.strftime("%H:%M:%S", time.localtime(state["finished_at"]))
+    parts = [f'{state["total"]} networks checked at {esc(when)}']
+    parts.append(f'<b class="civitai-updates-found">{updates} update(s)</b>' if updates else "everything is up to date")
+    if state["skipped"]:
+        parts.append(f'{state["skipped"]} without a hash yet')
+    return f'<div class="civitai-progress" data-running="0">{" &middot; ".join(parts)}</div>'
+
+
+def render_updates_list(site: str = "civitai.com") -> str:
+    state = UPDATE_STATE
+
+    if not state["items"]:
+        if state["running"]:
+            return '<div class="civitai-empty">Looking&hellip;</div>'
+        if state["finished_at"]:
+            return '<div class="civitai-empty">Every network is on its newest version.</div>'
+        return '<div class="civitai-empty">Press <b>Check for updates</b> to compare your LoRAs with Civitai.</div>'
+
+    out = ['<div class="civitai-updates">']
+    for file_hash, entry in sorted(state["items"].items(), key=lambda kv: str((kv[1] or {}).get("name", "")).lower()):
+        installed = entry.get("installed") or {}
+        latest = entry.get("latest") or {}
+        newer = entry.get("newer") or []
+
+        model_id = entry.get("model_id")
+        link = f"https://{site}/models/{model_id}?modelVersionId={latest.get('id')}" if model_id else ""
+
+        out.append('<div class="civitai-update">')
+        out.append('<div class="civitai-update-head">')
+        out.append(f'<span class="civitai-update-name">{esc(entry.get("name") or "?")}</span>')
+        current_name = installed.get("name") or "?"
+        new_name = latest.get("name") or "?"
+        out.append(
+            '<span class="civitai-update-versions">'
+            f"{esc(current_name)} &rarr; <b>{esc(new_name)}</b>"
+            + (f' <span class="civitai-update-count">+{len(newer) - 1} more version(s)</span>' if len(newer) > 1 else "")
+            + "</span>"
+        )
+        out.append("</div>")
+        out.append('<div class="civitai-update-meta">')
+        out.append(f"<span>{esc(str(latest.get('baseModel') or ''))}</span>")
+        published = str(latest.get("publishedAt") or latest.get("createdAt") or "")[:10]
+        if published:
+            out.append(f"<span>published {esc(published)}</span>")
+        if entry.get("file"):
+            out.append(f'<span class="civitai-path">{esc(os.path.basename(entry["file"]))}</span>')
+        if link:
+            out.append(f'<a href="{esc(link)}" target="_blank" rel="noreferrer">open on {esc(site)}</a>')
+        out.append("</div>")
+        out.append(
+            f'<button class="civitai-update-btn" data-hash="{esc(file_hash)}" '
+            'onclick="civitaiUpdate(this)">Download the new version</button>'
+        )
+        out.append("</div>")
+
+    out.append("</div>")
+    return "".join(out)
+
+
+def _run_update_check(site: str, entries: list[dict]):
+    client = client_for(site)
+    last = 0.0
+    failures = 0
+
+    for entry in entries:
+        if not UPDATE_STATE["running"]:
+            break
+        try:
+            last = api.rate_limit_sleep(last, 0.25)
+            info = client.update_info(entry["hash"])
+            failures = 0
+        except Exception as e:
+            failures += 1
+            UPDATE_STATE["error"] = str(e)
+            if failures >= 3:
+                break
+            continue
+
+        UPDATE_STATE["checked"] += 1
+        if info and info.get("newer"):
+            UPDATE_STATE["items"][entry["hash"]] = dict(info, file=entry["file"], name=entry["name"])
+
+    UPDATE_STATE["running"] = False
+    UPDATE_STATE["finished_at"] = time.time()
+
+
+def do_check_updates(site: str):
+    if UPDATE_STATE["running"]:
+        return render_updates_status(), render_updates_list(site)
+
+    entries, total = lora_networks()
+    UPDATE_STATE.update(
+        {
+            "running": False,
+            "checked": 0,
+            "total": total,
+            "skipped": max(0, total - len(entries)),
+            "items": {},
+            "error": "",
+            "finished_at": 0.0,
+        }
+    )
+
+    if not entries:
+        UPDATE_STATE["error"] = (
+            "None of the installed networks has a hash yet. Open the Extra Networks "
+            "tab once so Forge can compute them, then check again."
+        )
+        return render_updates_status(), render_updates_list(site)
+
+    UPDATE_STATE["running"] = True
+    threading.Thread(target=_run_update_check, args=(site, entries), daemon=True, name="civitai-update-check").start()
+    return render_updates_status(), render_updates_list(site)
+
+
+def do_stop_update_check():
+    UPDATE_STATE["running"] = False
+    return render_updates_status()
+
+
+def poll_updates(site: str):
+    return render_updates_status(), render_updates_list(site)
+
+
+def apply_update(pick: str, site: str):
+    entry = UPDATE_STATE["items"].get(str(pick or "").strip())
+    if entry is None:
+        return '<div class="civitai-error-box" data-running="0">That update is gone - check again.</div>', render_downloads()
+
+    latest = entry.get("latest") or {}
+    model = {
+        "id": entry.get("model_id"),
+        "name": entry.get("model_name") or entry.get("name"),
+        "type": entry.get("model_type") or "LORA",
+    }
+
+    folder = os.path.dirname(entry.get("file") or "") or target_folder(model["type"])
+
+    try:
+        client = client_for(site)
+        MANAGER.submit(
+            site=site,
+            api_key=client.api_key,
+            model=model,
+            version=latest,
+            target_dir=folder,
+            connections=int(_opt("civitai_download_threads", 4) or 4),
+            save_info=bool(_opt("civitai_save_info", True)),
+            save_preview=bool(_opt("civitai_save_preview", True)),
+            on_finished=lambda j: refresh_model_lists(model["type"]),
+        )
+    except Exception as e:
+        errors.display(e, "civitai update download")
+        return f'<div class="civitai-error-box" data-running="0">{esc(e)}</div>', render_downloads()
+
+    message = (
+        '<div class="civitai-progress" data-running="0">Downloading '
+        f'{esc(latest.get("name") or "the new version")} of {esc(model["name"] or "?")} '
+        "&mdash; see <b>Downloads</b> below.</div>"
+    )
+    return message, render_downloads()
 
 
 # --------------------------------------------------------------------------- actions
@@ -508,6 +749,17 @@ def on_ui_tabs():
                 refresh_dl = gr.Button("Refresh", elem_id="civitai_refresh_dl")
                 clear_dl = gr.Button("Clear finished", elem_id="civitai_clear_dl")
 
+        with gr.Accordion("Updates for installed LoRAs", open=False, elem_id="civitai_updates_accordion"):
+            gr.HTML(UPDATE_HELP)
+            updates_status = gr.HTML(render_updates_status(), elem_id="civitai_updates_status")
+            updates_list = gr.HTML(render_updates_list(default_site), elem_id="civitai_updates_list")
+            update_pick = gr.Textbox(visible=False, elem_id="civitai_update_pick")
+            update_pick_btn = gr.Button(visible=False, elem_id="civitai_update_pick_btn")
+            updates_poll = gr.Button(visible=False, elem_id="civitai_updates_poll")
+            with gr.Row():
+                check_updates_btn = gr.Button("Check for updates", variant="primary", elem_id="civitai_update_check")
+                stop_updates_btn = gr.Button("Stop", elem_id="civitai_update_stop")
+
         search_btn.click(
             fn=do_search,
             inputs=[site, query, model_type, base_model, sort, period, nsfw, limit, results_state],
@@ -541,6 +793,11 @@ def on_ui_tabs():
 
         refresh_dl.click(fn=render_downloads, inputs=[], outputs=[downloads])
         clear_dl.click(fn=lambda: (MANAGER.clear_finished(), render_downloads())[1], inputs=[], outputs=[downloads])
+
+        check_updates_btn.click(fn=do_check_updates, inputs=[site], outputs=[updates_status, updates_list])
+        stop_updates_btn.click(fn=do_stop_update_check, inputs=[], outputs=[updates_status])
+        updates_poll.click(fn=poll_updates, inputs=[site], outputs=[updates_status, updates_list])
+        update_pick_btn.click(fn=apply_update, inputs=[update_pick, site], outputs=[updates_status, downloads])
 
     return [(civitai_interface, "Civitai", "civitai")]
 

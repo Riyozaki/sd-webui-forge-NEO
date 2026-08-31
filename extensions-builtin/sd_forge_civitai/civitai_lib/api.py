@@ -7,6 +7,7 @@ key must never break the UI.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from urllib.parse import quote, urlencode
@@ -211,6 +212,54 @@ class CivitaiAPI:
             if "404" in str(e):
                 return None
             raise
+
+    def model_version_list(self, model_id) -> list[dict]:
+        """Every version of a model, newest first. Cached for this session."""
+        key = f"versions:{model_id}"
+        with self._cache_lock:
+            cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+
+        data = self.get_model(model_id) or {}
+        versions = [v for v in (data.get("modelVersions") or []) if isinstance(v, dict)]
+        versions.sort(key=lambda v: str(v.get("publishedAt") or v.get("createdAt") or ""), reverse=True)
+
+        with self._cache_lock:
+            self._cache[key] = versions
+        return versions
+
+    def update_info(self, file_hash: str) -> dict | None:
+        """Compare a local file with what Civitai has published for it.
+
+        Returns None when the site does not know the file (a hash it has not
+        indexed yet, or a model that was never uploaded), otherwise the
+        installed version, the newest one and everything published in between.
+        """
+        file_hash = re.sub(r"[^A-Fa-f0-9]", "", file_hash or "")
+        if len(file_hash) not in (10, 12, 64):
+            return None
+
+        installed = self.version_by_hash(file_hash)
+        if not installed or not installed.get("modelId"):
+            return None
+
+        published = str(installed.get("publishedAt") or installed.get("createdAt") or "")
+        versions = self.model_version_list(installed["modelId"])
+        newer = [
+            version
+            for version in versions
+            if str(version.get("publishedAt") or version.get("createdAt") or "") > published
+        ]
+
+        return {
+            "model_id": installed["modelId"],
+            "model_name": (installed.get("model") or {}).get("name") or "",
+            "model_type": (installed.get("model") or {}).get("type") or "",
+            "installed": installed,
+            "newer": newer,
+            "latest": newer[0] if newer else installed,
+        }
 
     def creator(self, username: str, limit: int = 24, page: int = 1) -> dict:
         return self._request("/models", params={"username": username, "limit": limit, "page": page, "nsfw": "true"})
