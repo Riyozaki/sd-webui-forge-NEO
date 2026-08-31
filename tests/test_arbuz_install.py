@@ -242,6 +242,21 @@ class LauncherFileTests(unittest.TestCase):
         self.assertIn("installer_files\\env\\Scripts\\python.exe", data)
         self.assertIn("call webui.bat", data)
 
+    def test_both_files_carry_the_same_revision(self):
+        # pasted logs are only useful if they say which build produced them
+        import re
+        source = (REPOSITORY_ROOT / "scripts" / "arbuz_install.py").read_text(encoding="utf8")
+        revision = re.search(r'^INSTALLER_REV = "(\d+)"', source, re.M).group(1)
+        self.assertIn(f'set "REV={revision}"', (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii"))
+        self.assertIn("[rev %REV%]", (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii"))
+        self.assertIn("[rev {INSTALLER_REV}]", source)
+
+    def test_doctor_mode_exists(self):
+        # the only way to debug a machine you cannot see
+        source = (REPOSITORY_ROOT / "scripts" / "arbuz_install.py").read_text(encoding="utf8")
+        self.assertIn('"--doctor"', source)
+        self.assertIn("def doctor(", source)
+
     def test_the_installer_folder_is_ignored_by_git(self):
         ignored = (REPOSITORY_ROOT / ".gitignore").read_text().splitlines()
         self.assertIn("/installer_files/", ignored)

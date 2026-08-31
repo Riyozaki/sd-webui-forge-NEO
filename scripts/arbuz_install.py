@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -35,6 +36,10 @@ ENV_DIR = INSTALLER_FILES / "env"
 CACHE_DIR = INSTALLER_FILES / "cache"
 WHEELS_DIR = INSTALLER_FILES / "wheels"
 SETTINGS_FILE = ROOT / "webui.settings.bat"
+
+# Bumped by hand; install.bat carries the same number, so a pasted log says
+# immediately whether the machine ran the build we think it did.
+INSTALLER_REV = "5"
 
 PORTABLE_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/"
@@ -171,6 +176,39 @@ TEXT = {
     "yes": ("да", "y"),
     "no": ("нет", "n"),
     "aborted": ("Прервано", "Aborted"),
+    "doctor.title": ("Проверка сети", "Network check"),
+    "doctor.hosts": ("Что доступно:", "What can be reached:"),
+    "doctor.pip": ("Пробую скачать крошечный пакет через pip:", "Trying to download a tiny package with pip:"),
+    "doctor.pip.ok": ("pip работает -- установка пакетов пойдёт.", "pip works -- package installation will go through."),
+    "doctor.pip.fail": ("pip не смог скачать даже 10 КБ. Значит, установка упрётся именно здесь.",
+                        "pip could not download even 10 KB. That is what the install will hit."),
+    "doctor.proxies": ("Прокси в переменных окружения:", "Proxies in the environment:"),
+    "doctor.none": ("нет", "none"),
+    "doctor.advice": ("Что это значит:", "What this means:"),
+    "advice.pypi.bad": (
+        "  * PyPI недоступен. Задай зеркало (INDEX_URL=<зеркало>) или прокси (HTTPS_PROXY=...), "
+        "либо собери колёса на другой машине и положи их в installer_files\\wheels.",
+        "  * PyPI is unreachable. Point INDEX_URL at a mirror or set HTTPS_PROXY, or collect the "
+        "wheels on another machine and drop them into installer_files\\wheels.",
+    ),
+    "advice.torch.bad": (
+        "  * Индекс torch недоступен. Скачивай torch сам в installer_files\\wheels или выбери "
+        "вариант 2 -- использовать torch, который уже стоит.",
+        "  * The torch index is unreachable. Fetch torch yourself into installer_files\\wheels, "
+        "or pick option 2 -- reuse the torch that is already installed.",
+    ),
+    "advice.assets.bad": (
+        "  * Файлы GitHub Releases недоступны. Это не страшно: portable Python нам не нужен, "
+        "раз у тебя уже есть Python, а nunchaku необязателен и будет пропущен.",
+        "  * GitHub release assets are unreachable. That is survivable: the portable Python is not "
+        "needed when a Python is already installed, and nunchaku is optional and will be skipped.",
+    ),
+    "advice.ok": (
+        "  * Всё нужное доступно. Запускай install.bat и, если torch у тебя уже стоит, "
+        "соглашайся на вариант 2 -- тогда качать придётся только пакеты с PyPI.",
+        "  * Everything needed is reachable. Run install.bat and, if torch is already installed, "
+        "take option 2 -- then only the packages from PyPI have to be downloaded.",
+    ),
     "enter.continue": (
         "Enter -- продолжить, n -- отмена.",
         "Enter to continue, n to cancel.",
@@ -429,6 +467,76 @@ def fetch_python(language="en"):
     return None
 
 
+def doctor(language="en"):
+    """Say what the network allows, so the install can be planned around it."""
+    import socket
+
+    print("=" * 62)
+    print(f"{t('title', language)}  [rev {INSTALLER_REV}] -- {t('doctor.title', language)}")
+    print("=" * 62)
+    print(f"{t('folder', language)}: {ROOT}")
+    print(f"Python: {sys.executable} ({sys.version.split()[0]})")
+    print(f"{t('free', language)}: {free_bytes() / 1024 ** 3:.1f} GB")
+
+    torch_index = os.environ.get("TORCH_INDEX_URL") or pinned_versions()["index"]
+    hosts = [
+        ("PyPI", "https://pypi.org/simple/"),
+        ("PyPI files", "https://files.pythonhosted.org/"),
+        ("GitHub archive (CLIP)", "https://codeload.github.com/"),
+        ("GitHub release assets (portable Python, nunchaku)", "https://objects.githubusercontent.com/"),
+        (f"torch index ({torch_index})", torch_index),
+    ]
+
+    print()
+    print(t("doctor.hosts", language))
+    results = {}
+    for name, url in hosts:
+        try:
+            started = time.time()
+            results[name] = reachable(url, timeout=8)
+            elapsed = (time.time() - started) * 1000
+            status = "OK  " if results[name] else "FAIL"
+        except socket.gaierror as error:
+            results[name], status, elapsed = False, "FAIL", 0.0
+            print(f"       (DNS: {error})")
+        print(f"  {status} {elapsed:6.0f} ms  {name}")
+        print(f"         {url}")
+
+    print()
+    print(t("doctor.pip", language))
+    try:
+        probe = subprocess.run(
+            f'"{sys.executable}" -m pip download --no-deps --no-cache-dir '
+            f'--dest "{CACHE_DIR / "probe"}" six',
+            shell=True, capture_output=True, text=True, timeout=180,
+            env={**os.environ, **cache_env()},
+        )
+        pip_ok = probe.returncode == 0
+        if not pip_ok:
+            print((probe.stdout or "") + (probe.stderr or ""))
+    except subprocess.TimeoutExpired:
+        pip_ok = False
+        print("timeout")
+    print(f"  {t('doctor.pip.ok' if pip_ok else 'doctor.pip.fail', language)}")
+
+    proxies = {name: os.environ[name] for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "INDEX_URL")
+               if os.environ.get(name)}
+    print()
+    print(f"{t('doctor.proxies', language)} {proxies or t('doctor.none', language)}")
+
+    print()
+    print(t("doctor.advice", language))
+    if not pip_ok or not results.get("PyPI"):
+        print(t("advice.pypi.bad", language))
+    if not results.get(f"torch index ({torch_index})"):
+        print(t("advice.torch.bad", language))
+    if not results.get("GitHub release assets (portable Python, nunchaku)"):
+        print(t("advice.assets.bad", language))
+    if pip_ok and results.get("PyPI") and results.get(f"torch index ({torch_index})"):
+        print(t("advice.ok", language))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Install ArbuzDiffusion in one click.")
     parser.add_argument("--yes", action="store_true", help="take the default option everywhere")
@@ -437,7 +545,11 @@ def main(argv=None):
     parser.add_argument("--offline", action="store_true", help="install from installer_files/wheels only")
     parser.add_argument("--index-url", default=os.environ.get("TORCH_INDEX_URL"), help="torch wheel index")
     parser.add_argument("--no-launch", action="store_true", help="do not offer to start the UI")
+    parser.add_argument("--doctor", action="store_true", help="check what the network allows and exit")
     args = parser.parse_args(argv)
+
+    if args.doctor:
+        return doctor(pick_language(args.lang))
 
     language = pick_language(args.lang)
     if language == "ru":
@@ -447,7 +559,7 @@ def main(argv=None):
             language = "en"
 
     print("=" * 62)
-    print(t("title", language))
+    print(f"{t('title', language)}  [rev {INSTALLER_REV}]")
     print("=" * 62)
     print(f"{t('folder', language)}: {ROOT}")
     print(f"{t('free', language)}: {free_bytes() / 1024 ** 3:.1f} GB")

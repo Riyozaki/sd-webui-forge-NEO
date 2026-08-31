@@ -17,9 +17,12 @@ setlocal
 cd /d "%~dp0"
 
 echo.
-echo   ArbuzDiffusion
+echo   ArbuzDiffusion  [rev %REV%]
 echo   ==============
 echo.
+
+rem Kept in sync with INSTALLER_REV in scripts\arbuz_install.py.
+set "REV=5"
 
 set "REPO_URL=https://github.com/Riyozaki/sd-webui-forge-NEO/archive/refs/heads/arena/01a054ae-sd-webui-forge-neo.zip"
 if defined ARBUZ_REPO_URL set "REPO_URL=%ARBUZ_REPO_URL%"
