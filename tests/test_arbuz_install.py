@@ -2,6 +2,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -118,6 +119,64 @@ class PinnedVersionsTests(unittest.TestCase):
         command = arbuz_install.torch_install_command(index="https://example.invalid/whl")
         self.assertIn("https://example.invalid/whl", command)
         self.assertNotIn(arbuz_install.FALLBACK_TORCH_INDEX, command)
+
+
+class WheelTests(unittest.TestCase):
+    """The way out when no source answers: hand the user a wheel."""
+
+    def test_the_wheel_names_match_the_pins_and_the_interpreter(self):
+        torch_name, vision_name, index = arbuz_install.wheel_urls()
+        pins = arbuz_install.pinned_versions()
+        tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+        self.assertIn(f"torch-{pins['torch']}+cu{pins['cuda']}-{tag}-{tag}", torch_name)
+        self.assertIn(f"torchvision-{pins['torchvision']}+cu{pins['cuda']}-{tag}-{tag}", vision_name)
+        self.assertTrue(torch_name.endswith(".whl") and vision_name.endswith(".whl"))
+        self.assertTrue(index.startswith("https://"))
+
+    def test_urls_txt_is_downloaded_into_the_wheelhouse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, original = Path(directory), arbuz_install.WHEELS_DIR
+            (root / "wheels").mkdir()
+            (root / "wheels" / "urls.txt").write_text(
+                "# a comment\n\nhttps://example.invalid/a/torch-2.8.0-cp311.whl\n", encoding="utf8")
+            try:
+                arbuz_install.WHEELS_DIR = root / "wheels"
+                with mock.patch.object(arbuz_install.subprocess, "run",
+                                       lambda *a, **k: types.SimpleNamespace(returncode=0)):
+                    arbuz_install.fetch_wheel_urls()
+            finally:
+                arbuz_install.WHEELS_DIR = original
+
+    def test_waiting_for_wheels_returns_what_was_dropped_in(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, original = Path(directory) / "wheels", arbuz_install.WHEELS_DIR
+            root.mkdir()
+            (root / "torch-2.8.0+cu128-cp311-cp311-win_amd64.whl").write_text("x")
+            try:
+                arbuz_install.WHEELS_DIR = root
+                with mock.patch.object(arbuz_install, "ask", lambda *a, **k: ""):
+                    found = arbuz_install.wait_for_wheels()
+            finally:
+                arbuz_install.WHEELS_DIR = original
+            self.assertEqual(len(found), 1)
+
+    def test_waiting_for_wheels_can_be_declined(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, original = Path(directory) / "wheels", arbuz_install.WHEELS_DIR
+            root.mkdir()
+            try:
+                arbuz_install.WHEELS_DIR = root
+                with mock.patch.object(arbuz_install, "ask", lambda *a, **k: "n"):
+                    self.assertEqual(arbuz_install.wait_for_wheels(), [])
+            finally:
+                arbuz_install.WHEELS_DIR = original
+
+    def test_cpu_mode_writes_the_flags_that_make_the_ui_start(self):
+        text = arbuz_install.settings_text(extra_args="--use-cpu all --skip-torch-cuda-test")
+        self.assertIn("set COMMANDLINE_ARGS=--autolaunch --use-cpu all --skip-torch-cuda-test", text)
+
+    def test_settings_are_plain_without_extra_flags(self):
+        self.assertIn("set COMMANDLINE_ARGS=--autolaunch", arbuz_install.settings_text())
 
 
 class TorchSourceTests(unittest.TestCase):

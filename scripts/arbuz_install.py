@@ -39,7 +39,7 @@ SETTINGS_FILE = ROOT / "webui.settings.bat"
 
 # Bumped by hand; install.bat carries the same number, so a pasted log says
 # immediately whether the machine ran the build we think it did.
-INSTALLER_REV = "7"
+INSTALLER_REV = "8"
 
 PORTABLE_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/"
@@ -132,6 +132,38 @@ TEXT = {
         "  3) or point TORCH_INDEX_URL at a mirror and run it again.",
     ),
     "wheels.offline": ("Ставлю из локальных колёс (без сети)", "Installing from local wheels (offline)"),
+    "wheels.downloading": ("Качаю колесо:", "Downloading wheel:"),
+    "wheels.needed": (
+        "Ни один источник torch не отвечает, поэтому колесо придётся положить руками.\n"
+        "Нужны два файла (имена важны):\n"
+        "    {}\n"
+        "    {}\n"
+        "Взять их можно на {}\n"
+        "через VPN, с телефона по мобильному интернету или у того, у кого сеть работает.",
+        "No torch source answers, so the wheel has to be put in by hand.\n"
+        "Two files are needed (the names matter):\n"
+        "    {}\n"
+        "    {}\n"
+        "They live at {}\n"
+        "reach it through a VPN, from a phone on mobile data, or from somebody whose network works.",
+    ),
+    "wheels.drop": (
+        "Положи их в открывшуюся папку и нажми Enter (n -- отмена):\n  {}",
+        "Drop them into the folder that just opened and press Enter (n to cancel):\n  {}",
+    ),
+    "torch.cpu": (
+        "Ставлю CPU-версию torch с PyPI: интерфейс поднимется и всё будет работать, "
+        "но генерация будет в десятки раз медленнее. CUDA-колесо можно подложить позже.",
+        "Installing the CPU build of torch from PyPI: the interface will come up and "
+        "everything will work, but generating will be tens of times slower. A CUDA "
+        "wheel can be dropped in later.",
+    ),
+    "torch.cpu.done": (
+        "Запуск пойдёт с --use-cpu all --skip-torch-cuda-test. Как появится CUDA-колесо, "
+        "положи его в installer_files\\wheels и запусти install.bat снова.",
+        "Starting with --use-cpu all --skip-torch-cuda-test. Once a CUDA wheel turns up, "
+        "drop it into installer_files\\wheels and run install.bat again.",
+    ),
     "wheels.missing": (
         "Колёса не нашлись, поэтому качаю как обычно. Положи torch-*.whl и torchvision-*.whl "
         "в installer_files\\wheels, чтобы установить вообще без сети.",
@@ -330,7 +362,7 @@ def cache_env(root=None):
     }
 
 
-def settings_text(root=None):
+def settings_text(root=None, extra_args=""):
     """The webui.settings.bat the installer writes.
 
     webui.bat sources this file before doing anything else, so this is where
@@ -352,7 +384,7 @@ def settings_text(root=None):
         lines.append(f'set "{name}=%~dp0{relative}"')
     lines += [
         "rem Open the UI in the browser and keep the rest of the defaults:",
-        "set COMMANDLINE_ARGS=--autolaunch",
+        f"set COMMANDLINE_ARGS=--autolaunch{(' ' + extra_args) if extra_args else ''}",
         "",
     ]
     return "\r\n".join(lines)
@@ -665,6 +697,63 @@ def doctor(language="en"):
     return 0
 
 
+def wheel_urls():
+    """The two wheels this build wants, named the way pip expects them."""
+    pins = pinned_versions()
+    tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    platform = "win_amd64" if os.name == "nt" else "linux_x86_64"
+    index = f"https://download.pytorch.org/whl/cu{pins['cuda']}"
+    return (
+        f"torch-{pins['torch']}+cu{pins['cuda']}-{tag}-{tag}-{platform}.whl",
+        f"torchvision-{pins['torchvision']}+cu{pins['cuda']}-{tag}-{tag}-{platform}.whl",
+        index,
+    )
+
+
+def fetch_wheel_urls(language="en"):
+    """Download any wheels listed in installer_files/wheels/urls.txt, resumably."""
+    listing = WHEELS_DIR / "urls.txt"
+    if not listing.is_file():
+        return []
+    downloaded = []
+    for line in listing.read_text(encoding="utf8", errors="ignore").splitlines():
+        url = line.strip()
+        if not url or url.startswith("#"):
+            continue
+        name = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+        target = WHEELS_DIR / name
+        print(f"  {t('wheels.downloading', language)} {name}")
+        result = subprocess.run(["curl", "-L", "-C", "-", "--retry", "3",
+                                 "--progress-bar", "-o", str(target), url])
+        if result.returncode == 0 and target.is_file():
+            downloaded.append(target)
+        else:
+            print(f"  ! {url}")
+    return downloaded
+
+
+def install_wheels(target, wheels, language="en"):
+    print(f"  {t('wheels.offline', language)}")
+    return run(f'"{target}" -m pip install --no-index --find-links "{WHEELS_DIR}" '
+               + " ".join(f'"{wheel}"' for wheel in wheels), env=cache_env()).returncode == 0
+
+
+def wait_for_wheels(language="en"):
+    """Nothing to download from: say exactly what to fetch, open the folder, wait."""
+    WHEELS_DIR.mkdir(parents=True, exist_ok=True)
+    torch_name, vision_name, index = wheel_urls()
+    print(t("wheels.needed", language).format(torch_name, vision_name, index))
+    try:
+        if os.name == "nt":
+            subprocess.run(f'explorer "{WHEELS_DIR}"', shell=True)
+    except Exception:
+        pass
+    print(t("wheels.drop", language).format(WHEELS_DIR))
+    if ask("  > ", "").strip().lower() in ("n", "н", "no", "нет"):
+        return []
+    return sorted(WHEELS_DIR.glob("*.whl"))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Install ArbuzDiffusion in one click.")
     parser.add_argument("--yes", action="store_true", help="take the default option everywhere")
@@ -674,6 +763,9 @@ def main(argv=None):
     parser.add_argument("--index-url", default=os.environ.get("TORCH_INDEX_URL"), help="torch wheel index")
     parser.add_argument("--no-launch", action="store_true", help="do not offer to start the UI")
     parser.add_argument("--doctor", action="store_true", help="check what the network allows and exit")
+    parser.add_argument("--cpu", action="store_true",
+                        help="install the CPU build of torch from PyPI, so the UI starts without a CUDA "
+                             "wheel; generation will be slow, and a CUDA wheel can be dropped in later")
     args = parser.parse_args(argv)
 
     if args.doctor:
@@ -783,31 +875,46 @@ def main(argv=None):
 
     # 4 -- torch.
     step(4, "torch")
+    WHEELS_DIR.mkdir(parents=True, exist_ok=True)
+    wheels = sorted(WHEELS_DIR.glob("*.whl")) + fetch_wheel_urls(language)
     probe = subprocess.run(
         f'"{target}" -c "import torch; print(torch.__version__)"',
         shell=True, capture_output=True, text=True, env={**os.environ, **cache_env()},
     )
-    if probe.returncode == 0:
+
+    installed = probe.returncode == 0
+    if installed:
         print(f"  {t('torch.present', language)} {probe.stdout.strip()}")
-    elif wheels:
-        print(f"  {t('wheels.offline', language)}")
-        run(f'"{target}" -m pip install --no-index --find-links "{WHEELS_DIR}" '
-            + " ".join(f'"{wheel}"' for wheel in wheels))
     else:
-        if choice == "3" or args.offline:
+        if (choice == "3" or args.offline) and not wheels:
             print(f"  ! {t('wheels.missing', language)}")
         elif reuse_torch:
             print(f"  ! {t('torch.not_reused', language)}")
-        preferred = args.index_url or os.environ.get("TORCH_INDEX_URL")
-        index = first_reachable_index(preferred)
-        if not index:
-            index = preferred or pinned_versions()["index"]
-            print(f"  ! {t('torch.unreachable', language).format(index, 'timeout')}")
-        elif index != TORCH_MIRRORS[0]:
-            print(f"  {t('torch.mirror', language).format(index)}")
-        print(f"  {t('torch.installing', language)}")
-        installed = run(f'"{target}" -m pip {torch_install_command(index=index)}', env=cache_env())
-        if installed.returncode != 0:
+
+        if wheels:
+            installed = install_wheels(target, wheels, language)
+
+        if not installed and not args.cpu:
+            index = first_reachable_index(args.index_url or os.environ.get("TORCH_INDEX_URL"))
+            if index:
+                if index != TORCH_MIRRORS[0]:
+                    print(f"  {t('torch.mirror', language).format(index)}")
+                print(f"  {t('torch.installing', language)}")
+                installed = run(f'"{target}" -m pip {torch_install_command(index=index)}',
+                                env=cache_env()).returncode == 0
+            else:
+                wheels = wait_for_wheels(language)
+                if wheels:
+                    installed = install_wheels(target, wheels, language)
+
+        if not installed and args.cpu:
+            print(f"  {t('torch.cpu', language)}")
+            installed = run(f'"{target}" -m pip install torch torchvision',
+                            env=cache_env()).returncode == 0
+            if installed:
+                print(f"  {t('torch.cpu.done', language)}")
+
+        if not installed:
             print(t("torch.failed", language))
             return 1
 
@@ -820,7 +927,7 @@ def main(argv=None):
 
     # 6 -- settings for the next start.
     step(6, t("settings.written", language))
-    backup = write_settings()
+    backup = write_settings("--use-cpu all --skip-torch-cuda-test" if args.cpu else "")
     if backup:
         print(f"  {t('settings.backup', language).format(backup.name)}")
     print(f"  {SETTINGS_FILE}")
@@ -836,14 +943,14 @@ def main(argv=None):
     return 0
 
 
-def write_settings():
+def write_settings(extra_args=""):
     """Write webui.settings.bat, keeping whatever was there under .bak."""
     backup = None
     if SETTINGS_FILE.exists():
         # people keep their launch flags in this file; never throw it away
         backup = SETTINGS_FILE.with_suffix(SETTINGS_FILE.suffix + ".bak")
         backup.write_bytes(SETTINGS_FILE.read_bytes())
-    SETTINGS_FILE.write_text(settings_text(), encoding="utf8", newline="")
+    SETTINGS_FILE.write_text(settings_text(extra_args=extra_args), encoding="utf8", newline="")
     return backup
 
 

@@ -18,7 +18,7 @@ cd /d "%~dp0"
 
 rem Kept in sync with INSTALLER_REV in scripts\arbuz_install.py, and set before
 rem the banner below, which prints it.
-set "REV=7"
+set "REV=8"
 
 echo.
 echo   ArbuzDiffusion  [rev %REV%]
