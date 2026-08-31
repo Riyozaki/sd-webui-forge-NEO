@@ -120,6 +120,32 @@ class PinnedVersionsTests(unittest.TestCase):
         self.assertNotIn(arbuz_install.FALLBACK_TORCH_INDEX, command)
 
 
+class TorchSourceTests(unittest.TestCase):
+    """A network that blocks the official index must still be able to install."""
+
+    def test_the_official_index_is_tried_first(self):
+        self.assertEqual(arbuz_install.TORCH_MIRRORS[0], arbuz_install.FALLBACK_TORCH_INDEX)
+        self.assertIn("download.pytorch.org", arbuz_install.TORCH_MIRRORS[0])
+
+    def test_first_reachable_index_prefers_what_was_asked_for(self):
+        with mock.patch.object(arbuz_install, "reachable", lambda url, timeout=8: True):
+            self.assertEqual(arbuz_install.first_reachable_index("https://example.invalid/whl"),
+                             "https://example.invalid/whl")
+
+    def test_first_reachable_index_falls_back_to_a_mirror(self):
+        def only_mirrors(url, timeout=8):
+            return url != arbuz_install.TORCH_MIRRORS[0]
+
+        with mock.patch.object(arbuz_install, "reachable", only_mirrors):
+            index = arbuz_install.first_reachable_index(None)
+        self.assertIsNotNone(index)
+        self.assertNotEqual(index, arbuz_install.TORCH_MIRRORS[0])
+
+    def test_first_reachable_index_gives_up_when_nothing_answers(self):
+        with mock.patch.object(arbuz_install, "reachable", lambda url, timeout=8: False):
+            self.assertIsNone(arbuz_install.first_reachable_index(None))
+
+
 class LanguageTests(unittest.TestCase):
     def test_explicit_choice_is_kept(self):
         self.assertEqual(arbuz_install.pick_language("ru"), "ru")
@@ -256,6 +282,11 @@ class LauncherFileTests(unittest.TestCase):
         source = (REPOSITORY_ROOT / "scripts" / "arbuz_install.py").read_text(encoding="utf8")
         self.assertIn('"--doctor"', source)
         self.assertIn("def doctor(", source)
+
+    def test_the_revision_is_set_before_it_is_printed(self):
+        # it was set after the banner once, so the banner always showed [rev ]
+        data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
+        self.assertLess(data.index('set "REV='), data.index("[rev %REV%]"))
 
     def test_doctor_bat_needs_no_command_line(self):
         # you cannot pass a flag by double-clicking a bat file

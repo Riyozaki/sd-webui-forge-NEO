@@ -16,13 +16,14 @@ chcp 65001 >nul 2>nul
 setlocal
 cd /d "%~dp0"
 
+rem Kept in sync with INSTALLER_REV in scripts\arbuz_install.py, and set before
+rem the banner below, which prints it.
+set "REV=7"
+
 echo.
 echo   ArbuzDiffusion  [rev %REV%]
 echo   ==============
 echo.
-
-rem Kept in sync with INSTALLER_REV in scripts\arbuz_install.py.
-set "REV=6"
 
 set "REPO_URL=https://github.com/Riyozaki/sd-webui-forge-NEO/archive/refs/heads/arena/01a054ae-sd-webui-forge-neo.zip"
 if defined ARBUZ_REPO_URL set "REPO_URL=%ARBUZ_REPO_URL%"

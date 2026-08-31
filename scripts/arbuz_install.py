@@ -39,14 +39,26 @@ SETTINGS_FILE = ROOT / "webui.settings.bat"
 
 # Bumped by hand; install.bat carries the same number, so a pasted log says
 # immediately whether the machine ran the build we think it did.
-INSTALLER_REV = "6"
+INSTALLER_REV = "7"
 
 PORTABLE_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/"
     "cpython-3.11.16+20260825-x86_64-pc-windows-msvc-install_only.tar.gz"
 )
 
-FALLBACK_TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
+# Where a CUDA torch can come from. The official index is always tried first;
+# the rest are mirrors kept for networks that cannot reach it -- a machine
+# behind a blocking provider has no other way to get a CUDA build, because
+# PyPI only carries CPU wheels for Windows.
+TORCH_MIRRORS = [
+    "https://download.pytorch.org/whl/cu128",
+    "https://mirrors.aliyun.com/pytorch-wheels/cu128",
+    "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128",
+    "https://mirrors.cloud.tencent.com/pytorch-wheels/cu128",
+    "https://mirrors.ustc.edu.cn/pytorch-wheels/cu128",
+]
+
+FALLBACK_TORCH_INDEX = TORCH_MIRRORS[0]
 FALLBACK_TORCH = "2.8.0"
 FALLBACK_TORCHVISION = "0.23.0"
 FALLBACK_CUDA = "128"
@@ -201,6 +213,30 @@ TEXT = {
     "torch.cuda.yes": ("видит видеокарту -- качать torch не нужно", "sees the GPU -- torch does not have to be downloaded"),
     "torch.cuda.no": ("не видит CUDA -- проверь драйвер NVIDIA", "cannot see CUDA -- check the NVIDIA driver"),
     "torch.absent": ("torch не установлен", "torch is not installed"),
+    "doctor.mirrors": ("Откуда можно взять torch с CUDA:", "Where a CUDA torch can come from:"),
+    "torch.mirror": (
+        "Официальный индекс недоступен, беру зеркало: {}",
+        "The official index is unreachable, using this mirror instead: {}",
+    ),
+    "advice.pip.broken": (
+        "  * PyPI доступен, а вот pip в этом Python не работает. Установщик восстановит pip "
+        "внутри своего окружения сам, сеть для этого не нужна.",
+        "  * PyPI is reachable, it is pip in this Python that is broken. The installer rebuilds "
+        "pip inside the environment it creates, and that needs no network.",
+    ),
+    "advice.mirror": (
+        "  * torch с CUDA возьмём с зеркала: установщик выберет его сам, ничего делать не нужно.",
+        "  * a CUDA torch will come from a mirror: the installer picks it automatically, "
+        "there is nothing to do.",
+    ),
+    "advice.no_torch_source": (
+        "  * Ни один источник torch не отвечает. Остаётся одно из трёх: включить VPN "
+        "(тогда install.bat сделает всё сам), скачать колесо на другом компьютере и положить "
+        "в installer_files\\wheels, либо попросить колесо у кого-то, у кого сеть работает.",
+        "  * Not a single torch source answers. One of three is left: turn on a VPN (then "
+        "install.bat does everything itself), download the wheel on another machine and drop it "
+        "into installer_files\\wheels, or get one from somebody whose network works.",
+    ),
     "doctor.pip": ("Пробую скачать крошечный пакет через pip:", "Trying to download a tiny package with pip:"),
     "doctor.pip.ok": ("pip работает -- установка пакетов пойдёт.", "pip works -- package installation will go through."),
     "doctor.pip.fail": ("pip не смог скачать даже 10 КБ. Значит, установка упрётся именно здесь.",
@@ -354,6 +390,16 @@ def quote(executable):
     if Path(str(executable)).exists():
         return f'"{executable}"'
     return str(executable)
+
+
+def first_reachable_index(preferred=None, timeout=8):
+    """The first torch index that answers, official first, mirrors after."""
+    candidates = [preferred] if preferred else []
+    candidates += [url for url in TORCH_MIRRORS if url not in candidates]
+    for url in candidates:
+        if reachable(url, timeout=timeout):
+            return url
+    return None
 
 
 def reachable(url, timeout=8):
@@ -522,6 +568,7 @@ def doctor(language="en"):
         ("GitHub archive (CLIP)", "https://codeload.github.com/"),
         ("GitHub release assets (portable Python, nunchaku)", "https://objects.githubusercontent.com/"),
         ("Hugging Face (wheels published by the community)", "https://huggingface.co/"),
+        ("Hugging Face file CDN", "https://cdn-lfs.huggingface.co/"),
         (f"torch index ({torch_index})", torch_index),
     ]
 
@@ -590,15 +637,27 @@ def doctor(language="en"):
     print(f"{t('doctor.proxies', language)} {proxies or t('doctor.none', language)}")
 
     print()
+    print(t("doctor.mirrors", language))
+    working_mirror = None
+    for url in TORCH_MIRRORS:
+        ok = reachable(url, timeout=8)
+        working_mirror = working_mirror or (url if ok else None)
+        print(f"  {'OK  ' if ok else 'FAIL'}  {url}")
+
+    print()
     print(t("doctor.advice", language))
     if pip_here.returncode != 0:
         print(t("advice.pip.absent", language))
-    if torch_here.returncode != 0 and not results.get(f"torch index ({torch_index})"):
-        print(t("advice.torch.absent", language))
-    if not pip_ok or not results.get("PyPI"):
+    if not results.get("PyPI"):
         print(t("advice.pypi.bad", language))
-    if not results.get(f"torch index ({torch_index})"):
-        print(t("advice.torch.bad", language))
+    elif not pip_ok:
+        print(t("advice.pip.broken", language))
+    if working_mirror and working_mirror != TORCH_MIRRORS[0]:
+        print(t("advice.mirror", language))
+    if torch_here.returncode != 0 and not working_mirror:
+        print(t("advice.no_torch_source", language))
+    if torch_here.returncode != 0 and not results.get(f"torch index ({torch_index})") and working_mirror:
+        print(t("advice.torch.absent", language))
     if not results.get("GitHub release assets (portable Python, nunchaku)"):
         print(t("advice.assets.bad", language))
     if pip_ok and results.get("PyPI") and results.get(f"torch index ({torch_index})"):
@@ -739,9 +798,13 @@ def main(argv=None):
             print(f"  ! {t('wheels.missing', language)}")
         elif reuse_torch:
             print(f"  ! {t('torch.not_reused', language)}")
-        index = args.index_url or os.environ.get("TORCH_INDEX_URL") or pinned_versions()["index"]
-        if not reachable(index):
+        preferred = args.index_url or os.environ.get("TORCH_INDEX_URL")
+        index = first_reachable_index(preferred)
+        if not index:
+            index = preferred or pinned_versions()["index"]
             print(f"  ! {t('torch.unreachable', language).format(index, 'timeout')}")
+        elif index != TORCH_MIRRORS[0]:
+            print(f"  {t('torch.mirror', language).format(index)}")
         print(f"  {t('torch.installing', language)}")
         installed = run(f'"{target}" -m pip {torch_install_command(index=index)}', env=cache_env())
         if installed.returncode != 0:
