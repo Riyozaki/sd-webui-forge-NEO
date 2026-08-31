@@ -429,9 +429,10 @@ Python 3.10 and 3.11. It installs nothing, so a run finishes in seconds.
 
 Neither git nor Python has to be installed first.
 
-1. Put the repository **on the drive you want it to stay on** &mdash; everything the installer
-   downloads stays inside that folder, and the system drive is never written to.
-2. Double-click **`install.bat`** and press Enter until it reports that it is done.
+1. Put **`install.bat`** in the folder you want the fork to live in &mdash; everything the
+   installer downloads stays inside that folder, and the system drive is never written to. If the
+   rest of the repository is not next to it, `install.bat` fetches the repository itself first.
+2. Double-click it and press Enter until it reports that it is done.
 3. From then on, start with **`run.bat`**.
 
 `install.bat` fetches a portable Python 3.11, builds a venv in `installer_files/env`, installs

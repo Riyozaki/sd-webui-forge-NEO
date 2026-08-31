@@ -223,10 +223,13 @@ class LauncherFileTests(unittest.TestCase):
         self.assertIn('"%BOOTSTRAP%" scripts\\arbuz_install.py', data)
         self.assertNotIn('call :try_python', data)
 
-    def test_install_bat_explains_a_partial_download(self):
-        # install.bat is useless on its own; say so instead of failing cryptically.
+    def test_install_bat_fetches_the_repository_when_it_is_alone(self):
+        # People download the single file. It has to be able to finish the job.
         data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
-        self.assertIn("if not exist \"%~dp0scripts\\arbuz_install.py\"", data)
+        self.assertIn("if exist \"%~dp0scripts\\arbuz_install.py\" goto :have_repo", data)
+        self.assertIn("archive/refs/heads/", data)
+        self.assertIn("--strip-components=1", data)
+        self.assertIn("repo_failed", data)
 
     def test_install_bat_does_not_require_a_python_installation(self):
         data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")

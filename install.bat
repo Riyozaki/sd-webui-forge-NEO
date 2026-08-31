@@ -8,6 +8,9 @@ rem  to C:, and your own Python installation is never touched.
 rem
 rem  It creates two things: installer_files\ and webui.settings.bat.
 rem  Both are ignored by git, and both can be deleted to start over.
+rem
+rem  Downloading this file on its own is fine: if the rest of the repository is
+rem  not next to it, it fetches the repository itself before doing anything.
 rem ---------------------------------------------------------------------------
 chcp 65001 >nul 2>nul
 setlocal
@@ -18,19 +21,38 @@ echo   ArbuzDiffusion
 echo   ==============
 echo.
 
-if not exist "%~dp0scripts\arbuz_install.py" (
-    echo   scripts\arbuz_install.py is missing.
-    echo.
-    echo   install.bat is only the front door - it needs the rest of the
-    echo   repository next to it. Download the whole repository (Code ^> Download
-    echo   ZIP, or git clone), not this single file.
-    echo.
-    pause
-    exit /b 1
-)
+set "REPO_URL=https://github.com/Riyozaki/sd-webui-forge-NEO/archive/refs/heads/arena/01a054ae-sd-webui-forge-neo.zip"
+if defined ARBUZ_REPO_URL set "REPO_URL=%ARBUZ_REPO_URL%"
 
 set "PORTABLE_URL=https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16+20260825-x86_64-pc-windows-msvc-install_only.tar.gz"
 if defined ARBUZ_PYTHON_URL set "PORTABLE_URL=%ARBUZ_PYTHON_URL%"
+
+rem --- the repository itself -------------------------------------------------
+if exist "%~dp0scripts\arbuz_install.py" goto :have_repo
+
+echo   The rest of the repository is not next to this file, so it is downloaded
+echo   into the current folder:
+echo.
+echo     %CD%
+echo.
+echo   %REPO_URL%
+echo.
+if not exist "%~dp0installer_files" mkdir "%~dp0installer_files"
+set "REPO_ZIP=%~dp0installer_files\repo.zip"
+curl.exe -L --retry 3 --retry-delay 2 --progress-bar -o "%REPO_ZIP%" "%REPO_URL%"
+if errorlevel 1 (
+    echo   curl did not manage it, trying PowerShell instead...
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; Invoke-WebRequest -Uri '%REPO_URL%' -OutFile '%REPO_ZIP%' -UseBasicParsing"
+)
+if not exist "%REPO_ZIP%" goto :repo_failed
+tar.exe -xf "%REPO_ZIP%" -C "%~dp0" --strip-components=1
+if errorlevel 1 goto :repo_failed
+del "%REPO_ZIP%" >nul 2>nul
+if not exist "%~dp0scripts\arbuz_install.py" goto :repo_failed
+echo.
+echo   Repository unpacked.
+
+:have_repo
 
 rem --- any Python 3.9+ is enough to run the installer itself -----------------
 rem Each candidate is turned into a full path to the interpreter, so that the
@@ -69,6 +91,17 @@ exit /b 0
 if errorlevel 1 exit /b 0
 for /f "delims=" %%i in ('%~1 -c "import sys; print(sys.executable)" 2^>nul') do set "BOOTSTRAP=%%i"
 exit /b 0
+
+:repo_failed
+echo.
+echo   Could not download the repository.
+echo   Download it by hand and unpack it into this folder, so that
+echo   scripts\arbuz_install.py ends up next to install.bat:
+echo.
+echo     %REPO_URL%
+echo.
+pause
+exit /b 1
 
 :download_failed
 echo.
