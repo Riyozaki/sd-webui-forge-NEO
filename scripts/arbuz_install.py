@@ -39,7 +39,7 @@ SETTINGS_FILE = ROOT / "webui.settings.bat"
 
 # Bumped by hand; install.bat carries the same number, so a pasted log says
 # immediately whether the machine ran the build we think it did.
-INSTALLER_REV = "5"
+INSTALLER_REV = "6"
 
 PORTABLE_PYTHON_URL = (
     "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/"
@@ -83,6 +83,11 @@ TEXT = {
         "the environment can see your Python's packages, so torch will not be downloaded",
     ),
     "venv.ready": ("Окружение готово", "Environment ready"),
+    "pip.repair": (
+        "pip в окружении нет -- восстанавливаю из колёс, встроенных в Python (сеть не нужна)",
+        "pip is missing from the environment -- restoring it from the wheels bundled with "
+        "Python, which needs no network",
+    ),
     "venv.failed": (
         "Не смог создать виртуальное окружение. Проверь, что Python запускается: "
         "python -m venv installer_files\\env",
@@ -178,6 +183,24 @@ TEXT = {
     "aborted": ("Прервано", "Aborted"),
     "doctor.title": ("Проверка сети", "Network check"),
     "doctor.hosts": ("Что доступно:", "What can be reached:"),
+    "doctor.python": ("Твой Python:", "Your Python:"),
+    "pip.present": ("pip на месте", "pip is there"),
+    "pip.absent": ("pip отсутствует", "pip is missing"),
+    "pip.fixable": (
+        "но его можно восстановить без сети: python -m ensurepip --upgrade",
+        "but it can be restored without any network: python -m ensurepip --upgrade",
+    ),
+    "pip.unfixable": (
+        "и восстановить его нечем -- переустанови Python с галочкой «Install pip»",
+        "and there is nothing to restore it from -- reinstall Python with «Install pip» ticked",
+    ),
+    "torch.present": (
+        "torch установлен: {} (CUDA {})",
+        "torch is installed: {} (CUDA {})",
+    ),
+    "torch.cuda.yes": ("видит видеокарту -- качать torch не нужно", "sees the GPU -- torch does not have to be downloaded"),
+    "torch.cuda.no": ("не видит CUDA -- проверь драйвер NVIDIA", "cannot see CUDA -- check the NVIDIA driver"),
+    "torch.absent": ("torch не установлен", "torch is not installed"),
     "doctor.pip": ("Пробую скачать крошечный пакет через pip:", "Trying to download a tiny package with pip:"),
     "doctor.pip.ok": ("pip работает -- установка пакетов пойдёт.", "pip works -- package installation will go through."),
     "doctor.pip.fail": ("pip не смог скачать даже 10 КБ. Значит, установка упрётся именно здесь.",
@@ -202,6 +225,20 @@ TEXT = {
         "раз у тебя уже есть Python, а nunchaku необязателен и будет пропущен.",
         "  * GitHub release assets are unreachable. That is survivable: the portable Python is not "
         "needed when a Python is already installed, and nunchaku is optional and will be skipped.",
+    ),
+    "advice.pip.absent": (
+        "  * В этом Python нет pip. Установщик восстановит его сам внутри окружения (это не "
+        "требует сети), но если не выйдет -- переустанови Python с галочкой «Install pip».",
+        "  * This Python has no pip. The installer restores it inside the environment it builds "
+        "(no network needed), but if that fails, reinstall Python with «Install pip» ticked.",
+    ),
+    "advice.torch.absent": (
+        "  * torch нет, а индекс PyTorch недоступен. На PyPI для Windows только CPU-версия, "
+        "поэтому варианты такие: взять wheel с Hugging Face (если он доступен), попросить "
+        "кого-то скачать его и положить в installer_files\\wheels, либо поставить через VPN.",
+        "  * torch is missing and the PyTorch index is unreachable. PyPI only carries the CPU "
+        "build for Windows, so: take a wheel from Hugging Face if it is reachable, have someone "
+        "download one into installer_files\\wheels, or install it through a VPN.",
     ),
     "advice.ok": (
         "  * Всё нужное доступно. Запускай install.bat и, если torch у тебя уже стоит, "
@@ -484,8 +521,36 @@ def doctor(language="en"):
         ("PyPI files", "https://files.pythonhosted.org/"),
         ("GitHub archive (CLIP)", "https://codeload.github.com/"),
         ("GitHub release assets (portable Python, nunchaku)", "https://objects.githubusercontent.com/"),
+        ("Hugging Face (wheels published by the community)", "https://huggingface.co/"),
         (f"torch index ({torch_index})", torch_index),
     ]
+
+    print()
+    print(f"{t('doctor.python', language)} {sys.executable} ({sys.version.split()[0]})")
+
+    pip_here = subprocess.run(f'{quote(sys.executable)} -m pip --version',
+                              shell=True, capture_output=True, text=True)
+    if pip_here.returncode == 0:
+        print(f"  pip: {t('pip.present', language)} ({pip_here.stdout.strip().split()[1]})")
+    else:
+        ensurepip = subprocess.run(f'{quote(sys.executable)} -c "import ensurepip; print(1)"',
+                                   shell=True, capture_output=True, text=True)
+        fixable = ensurepip.returncode == 0
+        print(f"  pip: {t('pip.absent', language)} -- "
+              f"{t('pip.fixable' if fixable else 'pip.unfixable', language)}")
+
+    torch_here = subprocess.run(
+        f'{quote(sys.executable)} -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"',
+        shell=True, capture_output=True, text=True,
+    )
+    if torch_here.returncode == 0:
+        parts = torch_here.stdout.split()
+        version, cuda = parts[0], (parts[1] if len(parts) > 1 else "?")
+        available = len(parts) > 2 and parts[2] == "True"
+        print(f"  {t('torch.present', language).format(version, cuda)} -- "
+              f"{t('torch.cuda.yes' if available else 'torch.cuda.no', language)}")
+    else:
+        print(f"  {t('torch.absent', language)}")
 
     print()
     print(t("doctor.hosts", language))
@@ -526,6 +591,10 @@ def doctor(language="en"):
 
     print()
     print(t("doctor.advice", language))
+    if pip_here.returncode != 0:
+        print(t("advice.pip.absent", language))
+    if torch_here.returncode != 0 and not results.get(f"torch index ({torch_index})"):
+        print(t("advice.torch.absent", language))
     if not pip_ok or not results.get("PyPI"):
         print(t("advice.pypi.bad", language))
     if not results.get(f"torch index ({torch_index})"):
@@ -645,6 +714,12 @@ def main(argv=None):
     print(f"  {t('venv.ready', language)}: {target}")
 
     step(3, t("pip.upgrade", language))
+    if run(f'"{target}" -m pip --version').returncode != 0:
+        # Some Python installations simply have no pip -- the machine this was
+        # written for had none -- and ensurepip rebuilds it from the wheels
+        # shipped with the interpreter, so it works with no network at all.
+        print(f"  {t('pip.repair', language)}")
+        run(f'"{target}" -m ensurepip --upgrade')
     run(f'"{target}" -m pip install --upgrade pip wheel', env=cache_env())
 
     # 4 -- torch.
