@@ -48,6 +48,30 @@ class SettingsFileTests(unittest.TestCase):
     def test_opens_the_ui_in_the_browser(self):
         self.assertIn("set COMMANDLINE_ARGS=--autolaunch", self.text)
 
+    def test_writing_keeps_the_old_file_under_bak(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings, original = root / "webui.settings.bat", arbuz_install.SETTINGS_FILE
+            settings.write_text("set COMMANDLINE_ARGS=--medvram", encoding="utf8")
+            try:
+                arbuz_install.SETTINGS_FILE = settings
+                backup = arbuz_install.write_settings()
+            finally:
+                arbuz_install.SETTINGS_FILE = original
+            self.assertIsNotNone(backup)
+            self.assertEqual(backup.read_text(encoding="utf8"), "set COMMANDLINE_ARGS=--medvram")
+            self.assertIn("VENV_DIR", settings.read_text(encoding="utf8"))
+
+    def test_writing_reports_no_backup_when_there_was_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings, original = Path(directory) / "webui.settings.bat", arbuz_install.SETTINGS_FILE
+            try:
+                arbuz_install.SETTINGS_FILE = settings
+                self.assertIsNone(arbuz_install.write_settings())
+            finally:
+                arbuz_install.SETTINGS_FILE = original
+            self.assertTrue(settings.exists())
+
 
 class CacheEnvTests(unittest.TestCase):
     def test_every_cache_lives_inside_the_installation_folder(self):

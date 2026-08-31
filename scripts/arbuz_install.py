@@ -131,6 +131,10 @@ TEXT = {
         "not seeing CUDA; update the NVIDIA driver in that case.",
     ),
     "settings.written": ("Написал webui.settings.bat", "Wrote webui.settings.bat"),
+    "settings.backup": (
+        "Старый webui.settings.bat сохранил рядом как {} -- вдруг там были твои флаги",
+        "The old webui.settings.bat is saved next to it as {} -- in case it had your flags in it",
+    ),
     "done": ("Готово", "Done"),
     "done.hint": (
         "Дальше запускай run.bat -- либо нажми Enter, и я запущу сразу.",
@@ -520,7 +524,9 @@ def main(argv=None):
 
     # 6 -- settings for the next start.
     step(6, t("settings.written", language))
-    SETTINGS_FILE.write_text(settings_text(), encoding="utf8", newline="")
+    backup = write_settings()
+    if backup:
+        print(f"  {t('settings.backup', language).format(backup.name)}")
     print(f"  {SETTINGS_FILE}")
 
     print()
@@ -532,6 +538,17 @@ def main(argv=None):
             launch = "call webui.bat" if os.name == "nt" else f'"{target}" launch.py'
             return run(launch).returncode
     return 0
+
+
+def write_settings():
+    """Write webui.settings.bat, keeping whatever was there under .bak."""
+    backup = None
+    if SETTINGS_FILE.exists():
+        # people keep their launch flags in this file; never throw it away
+        backup = SETTINGS_FILE.with_suffix(SETTINGS_FILE.suffix + ".bak")
+        backup.write_bytes(SETTINGS_FILE.read_bytes())
+    SETTINGS_FILE.write_text(settings_text(), encoding="utf8", newline="")
+    return backup
 
 
 def download(url, destination):
