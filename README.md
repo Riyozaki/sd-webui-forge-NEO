@@ -425,6 +425,27 @@ Python 3.10 and 3.11. It installs nothing, so a run finishes in seconds.
 
 ## Installation
 
+### One click (Windows)
+
+Neither git nor Python has to be installed first.
+
+1. Put the repository **on the drive you want it to stay on** &mdash; everything the installer
+   downloads stays inside that folder, and the system drive is never written to.
+2. Double-click **`install.bat`** and press Enter until it reports that it is done.
+3. From then on, start with **`run.bat`**.
+
+`install.bat` fetches a portable Python 3.11, builds a venv in `installer_files/env`, installs
+torch, delegates everything else to `launch.py --exit` (so the package list can never drift from
+`requirements.txt`), and writes a `webui.settings.bat` that points the launcher at that environment
+and redirects every cache &mdash; pip, HuggingFace, torch, temp &mdash; into the folder. Running it
+again is safe: it only fills in what is missing. If torch is already installed on the machine, the
+installer offers to reuse it instead of pulling another three gigabytes.
+
+`console.bat` opens a console with the environment activated. The full guide, including the offline
+path and troubleshooting, is in **[INSTALL.md](INSTALL.md)**.
+
+### Manual installation
+
 0. Install **[git](https://git-scm.com/downloads)**
 1. Clone the Repo
     ```bash

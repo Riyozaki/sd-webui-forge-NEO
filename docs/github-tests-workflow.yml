@@ -31,7 +31,7 @@ jobs:
       # the dependency or loads the module under test from source, precisely so
       # it can run here in seconds and on a machine with no GPU.
       - name: Syntax check
-        run: python -m compileall -q modules backend extensions-builtin/sd_forge_civitai extensions-builtin/sd_forge_lora tests
+        run: python -m compileall -q modules backend extensions-builtin/sd_forge_civitai extensions-builtin/sd_forge_lora scripts tests
 
       - name: Unit tests
         run: python -m unittest discover -s tests -v
