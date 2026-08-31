@@ -2108,3 +2108,111 @@ footer a {
 footer a:hover {
     text-decoration: underline;
 }
+
+/* -------------------------------------------------- extra networks cards */
+
+/* the stock rules glow blue; ours glows watermelon */
+.extra-network-pane .card:hover {
+    box-shadow:
+        0 0 0 2px var(--arbuz-flesh),
+        0 8px 20px rgba(0, 0, 0, 0.32);
+}
+
+.extra-network-pane .card,
+.standalone-card-preview.card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.extra-network-pane .card.extra-network-active {
+    box-shadow: 0 0 0 3px var(--arbuz-flesh), 0 0 16px rgba(255, 77, 109, 0.45);
+}
+
+.extra-network-pane .card.extra-network-active:hover {
+    box-shadow: 0 0 0 3px var(--arbuz-flesh), 0 0 18px rgba(255, 77, 109, 0.6);
+}
+
+.extra-network-pane .card.extra-network-active::after {
+    background: var(--arbuz-flesh);
+    color: #fff;
+}
+
+/* the caption sits on whatever the preview is, so it needs its own scrim
+   rather than trusting the thumbnail to be dark enough */
+.extra-network-pane .card .actions {
+    padding: 0.55em 0.7em 0.6em;
+    background: linear-gradient(to top, rgba(6, 10, 8, 0.88), rgba(6, 10, 8, 0.6) 70%, transparent);
+    box-shadow: none;
+    backdrop-filter: blur(2px);
+}
+
+.extra-network-pane .card .actions .name {
+    font-size: 1.35em;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    line-height: 1.15;
+}
+
+.extra-network-pane .card .actions .description {
+    font-size: 0.82em;
+    line-height: 1.25;
+    opacity: 0.72;
+}
+
+.extra-network-pane .card-button:hover {
+    color: var(--arbuz-flesh);
+}
+
+/* ------------------------------------------------------- panes and search */
+
+.extra-network-control {
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.35rem;
+    border: 1px solid var(--arbuz-border);
+    border-radius: var(--arbuz-radius);
+    background: var(--arbuz-surface);
+}
+
+.extra-network-control--search-text {
+    border-radius: 999px !important;
+    border: 1px solid var(--arbuz-border) !important;
+    background: var(--arbuz-surface-2) !important;
+    color: var(--arbuz-text, inherit) !important;
+    padding: 0.3rem 0.8rem !important;
+}
+
+.extra-network-control--search-text:focus {
+    border-color: var(--arbuz-flesh) !important;
+    box-shadow: 0 0 0 2px var(--arbuz-flesh-soft) !important;
+}
+
+/* --------------------------------------------------------------- accordions */
+
+.gradio-accordion > .label-wrap,
+.gr-accordion > .label-wrap {
+    font-weight: 600;
+    letter-spacing: -0.005em;
+}
+
+.gradio-accordion > .label-wrap:hover,
+.gr-accordion > .label-wrap:hover {
+    color: var(--arbuz-flesh);
+}
+
+/* ---------------------------------------------------------- settings page */
+
+#settings .gr-box,
+#settings .gr-group {
+    border-radius: var(--arbuz-radius);
+}
+
+/* the category headings javascript/settings.js injects above the sections */
+#settings .settings-category {
+    display: block;
+    margin: 0.9rem 0 0.15rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--arbuz-flesh);
+    opacity: 0.85;
+}
