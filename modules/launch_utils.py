@@ -306,7 +306,39 @@ def prepare_environment():
     print(f"Version: {tag}")
 
     if args.reinstall_torch or not is_installed("torch") or not is_installed("torchvision"):
-        run(f'"{python}" -m {torch_command}', "Installing torch and torchvision", "Couldn't install torch", live=True)
+        # [ArbuzDiffusion] This is the one install that ignored --skip-install: it calls
+        # run() directly instead of run_pip(), so the flag skipped everything except
+        # the heaviest download of the lot.  It now honours the flag, says which
+        # interpreter is missing the package - the usual cause is launching with a
+        # different Python than the one torch was installed into - and explains
+        # itself instead of boiling down to a pip timeout.
+        missing = [name for name in ("torch", "torchvision") if not is_installed(name)]
+        if args.skip_install:
+            raise RuntimeError(
+                f"--skip-install is set, but {' and '.join(missing)} is not installed for:\n"
+                f"  {python}\n"
+                "Either start the WebUI with the Python that has it, or drop --skip-install."
+            )
+
+        environment = "a virtual environment" if sys.prefix != sys.base_prefix else "the system Python"
+        print(f"Installing torch and torchvision: {python} ({environment}) has no {' and '.join(missing)}.")
+        print(f"Downloading from {torch_index_url}.")
+        print("If this hangs, that host is unreachable or you are launching with a Python that\n"
+              "does not have torch yet. Override the source with TORCH_INDEX_URL=... or skip the\n"
+              "download entirely with --skip-install.")
+
+        try:
+            run(f'"{python}" -m {torch_command}', "Installing torch and torchvision", "Couldn't install torch", live=True)
+        except Exception:
+            print(
+                "\n[ArbuzDiffusion] The torch download did not finish. What usually helps:\n"
+                f"  1. check that `{python} -c \"import torch\"` works - if it does, the launcher\n"
+                "     is using a different Python than your install (set PYTHON= in webui-user.bat)\n"
+                "  2. point pip at a mirror you can reach: set TORCH_INDEX_URL=<mirror>\n"
+                "  3. install torch by hand and start again with --skip-install\n"
+            )
+            raise
+
         startup_timer.record("install torch")
 
     if not args.skip_torch_cuda_test:
