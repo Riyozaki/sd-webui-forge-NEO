@@ -215,6 +215,19 @@ class LauncherFileTests(unittest.TestCase):
         data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
         self.assertIn("scripts\\arbuz_install.py", data)
 
+    def test_install_bat_resolves_launchers_to_a_path(self):
+        # Quoting "py -3.11" makes cmd look for a program with that literal
+        # name, so the candidate has to become a full path before it is quoted.
+        data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
+        self.assertIn("print(sys.executable)", data)
+        self.assertIn('"%BOOTSTRAP%" scripts\\arbuz_install.py', data)
+        self.assertNotIn('call :try_python', data)
+
+    def test_install_bat_explains_a_partial_download(self):
+        # install.bat is useless on its own; say so instead of failing cryptically.
+        data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
+        self.assertIn("if not exist \"%~dp0scripts\\arbuz_install.py\"", data)
+
     def test_install_bat_does_not_require_a_python_installation(self):
         data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
         self.assertIn("curl.exe", data)

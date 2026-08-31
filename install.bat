@@ -18,16 +18,30 @@ echo   ArbuzDiffusion
 echo   ==============
 echo.
 
+if not exist "%~dp0scripts\arbuz_install.py" (
+    echo   scripts\arbuz_install.py is missing.
+    echo.
+    echo   install.bat is only the front door - it needs the rest of the
+    echo   repository next to it. Download the whole repository (Code ^> Download
+    echo   ZIP, or git clone), not this single file.
+    echo.
+    pause
+    exit /b 1
+)
+
 set "PORTABLE_URL=https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16+20260825-x86_64-pc-windows-msvc-install_only.tar.gz"
 if defined ARBUZ_PYTHON_URL set "PORTABLE_URL=%ARBUZ_PYTHON_URL%"
 
 rem --- any Python 3.9+ is enough to run the installer itself -----------------
+rem Each candidate is turned into a full path to the interpreter, so that the
+rem line that runs the installer can quote it: quoting "py -3.11" would make
+rem cmd look for a program literally named py -3.11.
 set "BOOTSTRAP="
 if exist "%~dp0installer_files\python\python.exe" set "BOOTSTRAP=%~dp0installer_files\python\python.exe"
-if not defined BOOTSTRAP call :try_python "py -3.11"
-if not defined BOOTSTRAP call :try_python "py -3"
-if not defined BOOTSTRAP call :try_python "python"
-if not defined BOOTSTRAP call :try_python "python3"
+if not defined BOOTSTRAP call :resolve "py -3.11"
+if not defined BOOTSTRAP call :resolve "py -3"
+if not defined BOOTSTRAP call :resolve "python"
+if not defined BOOTSTRAP call :resolve "python3"
 if defined BOOTSTRAP goto :run_installer
 
 echo   No Python found, downloading a portable one (about 48 MB, once):
@@ -50,9 +64,10 @@ echo.
 pause
 exit /b 0
 
-:try_python
+:resolve
 %~1 -c "import sys; sys.exit(0 if sys.version_info >= (3,9) else 1)" >nul 2>nul
-if not errorlevel 1 set "BOOTSTRAP=%~1"
+if errorlevel 1 exit /b 0
+for /f "delims=" %%i in ('%~1 -c "import sys; print(sys.executable)" 2^>nul') do set "BOOTSTRAP=%%i"
 exit /b 0
 
 :download_failed
