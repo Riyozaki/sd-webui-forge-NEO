@@ -565,6 +565,9 @@ options_templates.update(
                 """
             ),
             "neo_cudnn_benchmark": OptionInfo(True, "Auto-tune cuDNN convolutions while sampling").info("the UNet is convolution heavy and sampling re-uses the same shapes for every step, so auto-tuning pays off; automatically disabled in low VRAM mode"),
+            "neo_timing_report": OptionInfo(True, "Print where the time went after every generation").info(
+                "one console line per generation: sampling (this includes the hires pass), decoding and post-processing/saving; the quickest way to see whether a change actually helps"
+            ),
             "neo_preview_stream": OptionInfo(True, "Decode the live preview on a separate CUDA stream").info("stops the preview from stalling the sampler; disable it if you see artifacts in the preview"),
             "neo_tf32": OptionInfo(False, "Allow TF32 for fp32 math").info("only affects <b>fp32</b> models (see the 'GPU Weights' settings); a tiny precision change"),
             "neo_fp16_accumulation": OptionInfo(False, "Allow fp16 accumulation in fp16 matmuls").info("same as the '--fast-fp16' CMD flag; a tiny precision change"),

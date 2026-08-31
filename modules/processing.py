@@ -938,6 +938,13 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
         if state.job_count == -1:
             state.job_count = p.n_iter
 
+        # [NEO] Where the time actually goes. Nothing else reads these; the
+        # numbers are printed once, after the last batch.
+        phase_sample = 0.0
+        phase_decode = 0.0
+        phase_post = 0.0
+        phase_started = time.perf_counter()
+
         for n in range(p.n_iter):
             p.iteration = n
 
@@ -1005,7 +1012,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 sigmas_backup = p.sd_model.forge_objects.unet.model.predictor.sigmas
                 p.sd_model.forge_objects.unet.model.predictor.set_sigmas(rescale_zero_terminal_snr_sigmas(p.sd_model.forge_objects.unet.model.predictor.sigmas))
 
+            _phase = time.perf_counter()
             samples_ddim = p.sample(conditioning=p.c, unconditional_conditioning=p.uc, seeds=p.seeds, subseeds=p.subseeds, subseed_strength=p.subseed_strength, prompts=p.prompts)
+            phase_sample += time.perf_counter() - _phase
 
             for x_sample in samples_ddim:
                 p.latents_after_sampling.append(x_sample)
@@ -1025,7 +1034,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
 
                 if opts.sd_vae_decode_method != 'Full':
                     p.extra_generation_params['VAE Decoder'] = opts.sd_vae_decode_method
+                _phase = time.perf_counter()
                 x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
+                phase_decode += time.perf_counter() - _phase
 
             x_samples_ddim = torch.stack(x_samples_ddim).float()
             # torch.stack always allocates, so the conversion can happen in place:
@@ -1058,6 +1069,7 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
             if _is_video:
                 frames = []
 
+            _phase = time.perf_counter()
             for i, x_sample in enumerate(x_samples_ddim):
                 p.batch_index = i
                 x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
@@ -1142,9 +1154,21 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 video_path = images.save_video(p, frames)
                 del frames
 
+            phase_post += time.perf_counter() - _phase
+
             del x_samples_ddim
 
             devices.torch_gc()
+
+        if getattr(opts, "neo_timing_report", True):
+            phase_total = time.perf_counter() - phase_started
+            images_made = len(output_images)
+            print(
+                f"[NEO] {images_made} image(s) {p.width}x{p.height}, {p.steps} steps: "
+                f"{phase_total:.2f}s total - sampling {phase_sample:.2f}s, decode {phase_decode:.2f}s, "
+                f"post-processing {phase_post:.2f}s, "
+                f"the rest {max(0.0, phase_total - phase_sample - phase_decode - phase_post):.2f}s"
+            )
 
         if not infotexts:
             infotexts.append(Processed(p, []).infotext(p, 0))
