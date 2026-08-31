@@ -161,6 +161,10 @@ def _install_stubs():
     shared = types.SimpleNamespace(opts=types.SimpleNamespace(neo_cuda_graph=False, neo_unet_compile="disabled"))
     modules = types.ModuleType("modules")
     modules.shared = shared
+    # Point the stand-in at the real directory: without a __path__ it is not a
+    # package, and any later `from modules import ...` in this process - another
+    # test module, for instance - would fail with "modules is not a package".
+    modules.__path__ = [str(REPOSITORY_ROOT / "modules")]
     sys.modules["modules"] = modules
     sys.modules["modules.shared"] = shared
 

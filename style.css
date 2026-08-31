@@ -1900,3 +1900,211 @@ body.resizing .resize-handle {
         transition: none !important;
     }
 }
+
+/* ==========================================================================
+   ArbuzDiffusion
+   Brand tokens, the header, the density steps and the polish on the
+   components Gradio does not style on its own.  The values mirror
+   modules/neo_theme.py: the theme colours everything Gradio ships, these
+   rules colour everything this fork adds on top.
+   ========================================================================== */
+
+:root {
+    --arbuz-flesh: #ff4d6d;
+    --arbuz-flesh-strong: #f73659;
+    --arbuz-flesh-soft: rgba(255, 77, 109, 0.16);
+    --arbuz-rind: #16a96a;
+    --arbuz-rind-soft: rgba(22, 169, 106, 0.16);
+    --arbuz-bark: #0e1412;
+    --arbuz-surface: #151d1a;
+    --arbuz-surface-2: #1b2521;
+    --arbuz-border: #26332d;
+    --arbuz-border-strong: #33453c;
+    --arbuz-text: #e6f0e9;
+    --arbuz-muted: #9db3a5;
+    --arbuz-radius: 12px;
+    --arbuz-gap: 0.7rem;
+    --arbuz-pad: 0.7rem;
+}
+
+/* the light weight keeps the same accents, only the shell changes */
+.arbuz-weight-light {
+    --arbuz-flesh: #e11d48;
+    --arbuz-flesh-strong: #be123c;
+    --arbuz-flesh-soft: rgba(225, 29, 72, 0.12);
+    --arbuz-rind: #157f4f;
+    --arbuz-bark: #f4f8f5;
+    --arbuz-surface: #ffffff;
+    --arbuz-surface-2: #edf3ee;
+    --arbuz-border: #d7e3da;
+    --arbuz-border-strong: #b6c7bd;
+    --arbuz-text: #16211c;
+    --arbuz-muted: #5c6f63;
+}
+
+.arbuz-density-compact {
+    --arbuz-gap: 0.4rem;
+    --arbuz-pad: 0.42rem;
+}
+
+.arbuz-density-spacious {
+    --arbuz-gap: 1rem;
+    --arbuz-pad: 0.95rem;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.arbuz-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.55rem 0;
+    padding: 0.45rem 0.85rem;
+    border: 1px solid var(--arbuz-border);
+    border-radius: var(--arbuz-radius);
+    background:
+        linear-gradient(90deg, var(--arbuz-flesh-soft), transparent 55%),
+        var(--arbuz-surface);
+    font-family: var(--arbuz-font, inherit);
+}
+
+.arbuz-brand-mark {
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.arbuz-brand-mark svg {
+    display: block;
+    width: 26px;
+    height: 26px;
+}
+
+.arbuz-brand-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--arbuz-text, inherit);
+}
+
+.arbuz-brand-tagline {
+    margin-left: auto;
+    font-size: 0.76rem;
+    opacity: 0.5;
+}
+
+.arbuz-density-compact .arbuz-brand {
+    padding: 0.28rem 0.75rem;
+}
+
+/* -------------------------------------------------------- settings section */
+
+.arbuz-settings-intro {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin: 0 0 0.6rem 0;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--arbuz-border);
+    border-radius: var(--arbuz-radius);
+    background: var(--arbuz-surface-2);
+    line-height: 1.5;
+}
+
+.arbuz-settings-mark {
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.arbuz-settings-mark svg {
+    display: block;
+    width: 44px;
+    height: 44px;
+}
+
+/* ------------------------------------------------------------------- tabs */
+
+#tabs .tab-nav button.selected {
+    border-color: var(--arbuz-flesh);
+    color: var(--arbuz-flesh);
+}
+
+/* --------------------------------------------------------- generate buttons */
+
+#txt2img_generate,
+#img2img_generate {
+    font-weight: 650;
+    letter-spacing: 0.005em;
+    box-shadow: 0 2px 12px rgba(247, 54, 89, 0.28);
+}
+
+#txt2img_generate:hover,
+#img2img_generate:hover {
+    box-shadow: 0 3px 16px rgba(255, 77, 109, 0.42);
+}
+
+/* -------------------------------------------------------------- the progress */
+
+.progressDiv .progress {
+    background-image: linear-gradient(90deg, var(--arbuz-rind), var(--arbuz-flesh));
+}
+
+/* --------------------------------------------------------- card polish */
+
+.extra-network-pane .card {
+    border-radius: var(--arbuz-radius);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.extra-network-pane .card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.civitai-card {
+    border-radius: var(--arbuz-radius);
+}
+
+/* ------------------------------------------------------------ density steps */
+
+.arbuz-density-compact .civitai-card,
+.arbuz-density-compact .civitai-update {
+    padding: 0.45rem 0.6rem;
+}
+
+.arbuz-density-compact .civitai-updates,
+.arbuz-density-compact .civitai-grid {
+    gap: 0.32rem;
+}
+
+.arbuz-density-spacious .civitai-card,
+.arbuz-density-spacious .civitai-update {
+    padding: 0.85rem 1rem;
+}
+
+/* ------------------------------------------------------------------- misc */
+
+::selection {
+    background: var(--arbuz-flesh-soft);
+}
+
+* {
+    scrollbar-color: var(--arbuz-border-strong) transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--arbuz-border-strong);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--arbuz-muted);
+}
+
+footer a {
+    color: var(--arbuz-flesh);
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}

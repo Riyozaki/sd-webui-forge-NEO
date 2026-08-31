@@ -3,7 +3,7 @@ import os
 import gradio as gr
 
 from backend.text_processing import emphasis as sd_emphasis
-from modules import localization, shared, shared_gradio_themes, shared_items, ui_components, util
+from modules import localization, neo_theme, shared, shared_gradio_themes, shared_items, ui_components, util
 from modules.options import OptionDiv, OptionHTML, OptionInfo, categories, options_section
 from modules.paths_internal import data_path, default_output_dir
 from modules.shared_cmd_options import cmd_opts
@@ -28,6 +28,7 @@ restricted_opts = {
     "temp_dir",
 }
 
+categories.register_category("arbuz", "ArbuzDiffusion")
 categories.register_category("saving", "Saving")
 categories.register_category("sd", "Stable Diffusion")
 categories.register_category("ui", "User Interface")
@@ -414,7 +415,7 @@ options_templates.update(
             "ui_tab_order": OptionInfo([], "UI Tab Order", ui_components.DropdownMulti, lambda: {"choices": list(shared.tab_names)}).needs_reload_ui(),
             "hidden_tabs": OptionInfo([], "Hide UI Tabs", ui_components.DropdownMulti, lambda: {"choices": list(shared.tab_names)}).needs_reload_ui(),
             "ui_reorder_list": OptionInfo([], "Parameter order for txt2img / img2img", ui_components.DropdownMulti, lambda: {"choices": list(shared_items.ui_reorder_categories())}).info("selected items appear first").needs_reload_ui(),
-            "gradio_theme": OptionInfo("Default", "Gradio Theme", ui_components.DropdownEditable, lambda: {"choices": ["Default", *shared_gradio_themes.gradio_hf_hub_themes]}).needs_reload_ui(),
+            "gradio_theme": OptionInfo(neo_theme.DEFAULT_THEME, "Gradio Theme", ui_components.DropdownEditable, lambda: {"choices": [*shared_gradio_themes.builtin_themes, "Default", *shared_gradio_themes.gradio_hf_hub_themes]}).needs_reload_ui(),
             "gradio_themes_cache": OptionInfo(True, "Cache selected theme locally"),
             "show_progress_in_title": OptionInfo(True, "Show generation progress in window title"),
             "send_seed": OptionInfo(True, 'Send the Seed information when using the "Send to" buttons'),
@@ -550,6 +551,34 @@ options_templates.update(
             "svdq_cpu_offload": OptionInfo(True, "CPU Offload").info("recommended if the VRAM is less than 14 GB"),
             "svdq_cache_threshold": OptionInfo(0.0, "Cache Threshold", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}).info("increasing the value enhances speed at the cost of quality; a typical value is 0.12; setting it to 0 disables the effect"),
             "svdq_attention": OptionInfo("nunchaku-fp16", "Attention", gr.Radio, {"choices": ["nunchaku-fp16", "flashattn2"]}).info("RTX 20s GPUs can only use nunchaku-fp16"),
+        },
+    )
+)
+
+options_templates.update(
+    options_section(
+        ("arbuz-identity", "ArbuzDiffusion", "arbuz"),
+        {
+            "arbuz_explanation": OptionHTML(
+                """
+                <div class="arbuz-settings-intro">
+                <span class="arbuz-settings-mark">%s</span>
+                <div>
+                <b>ArbuzDiffusion</b> &mdash; a Forge Neo fork with a watermelon on the bonnet.<br>
+                The palette is the fruit read from the outside in: rind green for the shell,
+                flesh red for everything you press.
+                </div>
+                </div>
+                """
+                % neo_theme.MARK_SVG
+            ),
+            "arbuz_brand_bar": OptionInfo(True, "Show the ArbuzDiffusion header above the tabs").needs_reload_ui(),
+            "arbuz_ui_density": OptionInfo(
+                "Cozy",
+                "Interface density",
+                gr.Radio,
+                {"choices": ["Compact", "Cozy", "Spacious"]},
+            ).info("compact fits noticeably more on screen; changing it reloads the interface").needs_reload_ui(),
         },
     )
 )

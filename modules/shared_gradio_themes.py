@@ -2,11 +2,14 @@ import os
 
 import gradio as gr
 
-from modules import errors, shared
+from modules import errors, neo_theme, shared
 from modules.paths_internal import script_path
 
 
 # https://huggingface.co/datasets/freddyaboulton/gradio-theme-subdomains/resolve/main/subdomains.json
+"""Themes this fork ships, shown before the Gradio and HuggingFace ones."""
+builtin_themes = list(neo_theme.THEME_NAMES)
+
 gradio_hf_hub_themes = [
     "gradio/base",
     "gradio/glass",
@@ -50,7 +53,10 @@ def reload_gradio_theme(theme_name=None):
         font_mono=['IBM Plex Mono', 'ui-monospace', 'Consolas', 'monospace'],
     )
 
-    if theme_name == "Default":
+    if neo_theme.is_arbuz_theme(theme_name):
+        # our own themes carry their own fonts, radii and palette
+        shared.gradio_theme = neo_theme.build_theme(theme_name, getattr(shared.opts, "arbuz_ui_density", "Cozy"))
+    elif theme_name == "Default":
         shared.gradio_theme = gr.themes.Default(**default_theme_args)
     else:
         try:

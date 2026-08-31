@@ -22,6 +22,7 @@ from modules.ui_common import create_refresh_button  # noqa: F401
 from modules.ui_components import FormGroup, FormHTML, FormRow, InputAccordion, ResizeHandleRow, ToolButton
 from modules.ui_gradio_extensions import reload_javascript
 from modules_forge import main_entry
+from modules import neo_theme
 from modules_forge.forge_canvas.canvas import ForgeCanvas, canvas_head
 
 create_setting_component = ui_settings.create_setting_component
@@ -886,7 +887,19 @@ def create_ui():
     for _interface, label, _ifid in interfaces:
         shared.tab_names.append(label)
 
-    with gr.Blocks(theme=shared.gradio_theme, analytics_enabled=False, title="Stable Diffusion", head=canvas_head) as demo:
+    # [ArbuzDiffusion] our own name in the browser tab, our own mark as its icon.
+    arbuz_head = (
+        f'{canvas_head}<link rel="icon" href="{neo_theme.favicon_href()}">'
+        '<meta name="theme-color" content="#0e1412">'
+    )
+
+    with gr.Blocks(theme=shared.gradio_theme, analytics_enabled=False, title=neo_theme.APP_TITLE, head=arbuz_head) as demo:
+        if opts.arbuz_brand_bar:
+            gr.HTML(neo_theme.brand_bar_html("Forge Neo, squeezed"), elem_id="arbuz-brand")
+
+        # baked into the page; the script turns these into classes on the root
+        gr.HTML(neo_theme.flags_html(str(opts.arbuz_ui_density), str(opts.gradio_theme)), elem_id="arbuz-flags-flag")
+
         settings.add_quicksettings()
 
         parameters_copypaste.connect_paste_params_buttons()
