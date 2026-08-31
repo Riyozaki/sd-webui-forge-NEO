@@ -61,6 +61,7 @@ TEXT = {
     ),
     "step": ("Шаг", "Step"),
     "python.reuse": ("Нашёл свой Python:", "Reusing the bundled Python:"),
+    "python.using": ("Использую найденный Python:", "Using the Python found:"),
     "python.downloading": (
         "Скачиваю portable Python 3.11 -- это разово, и он останется внутри папки",
         "Downloading a portable Python 3.11 -- one time only, and it stays inside the folder",
@@ -125,10 +126,17 @@ TEXT = {
         "Installing the rest through the project itself (launch.py --exit)",
     ),
     "project.failed": (
-        "launch.py завершился с ошибкой -- текст выше подскажет причину. "
-        "Частая причина: torch не видит CUDA, тогда обнови драйвер NVIDIA.",
-        "launch.py failed -- the output above should say why. A common cause is torch "
-        "not seeing CUDA; update the NVIDIA driver in that case.",
+        "launch.py завершился с ошибкой -- текст выше подскажет причину. Частые причины:\n"
+        "  * torch не видит CUDA -- обнови драйвер NVIDIA;\n"
+        "  * недоступен github.com -- оттуда берутся CLIP и nunchaku. Их можно положить\n"
+        "    в installer_files\\wheels или подменить через переменные CLIP_PACKAGE и\n"
+        "    NUNCHAKU_PACKAGE;\n"
+        "  * оборвался pip -- просто запусти install.bat ещё раз, он продолжит с того же места.",
+        "launch.py failed -- the output above should say why. Usual causes:\n"
+        "  * torch cannot see CUDA -- update the NVIDIA driver;\n"
+        "  * github.com is unreachable -- CLIP and nunchaku come from there. Drop them into\n"
+        "    installer_files\\wheels, or override CLIP_PACKAGE and NUNCHAKU_PACKAGE;\n"
+        "  * pip dropped out -- running install.bat again picks up where it stopped.",
     ),
     "settings.written": ("Написал webui.settings.bat", "Wrote webui.settings.bat"),
     "settings.backup": (
@@ -158,6 +166,8 @@ TEXT = {
         "Offline: install from installer_files\\wheels",
     ),
     "prompt": ("Номер", "Number"),
+    "choose.default": ("Enter -- вариант {}, или набери другой номер",
+                       "Enter for option {}, or type another number"),
     "yes": ("да", "y"),
     "no": ("нет", "n"),
     "aborted": ("Прервано", "Aborted"),
@@ -312,41 +322,74 @@ def ask(question, default="1"):
     return answer or default
 
 
+def candidate_pythons():
+    """Interpreters worth asking, the one running this installer first.
+
+    install.bat may have picked a Python that is not on PATH at all -- py -3.11
+    resolves to a full path -- so sys.executable is both the most reliable
+    candidate and the fastest to check. Probing the PATH first is what made the
+    installer reach for a download on machines that already had Python.
+    """
+    ordered = [sys.executable, "python", "python3", "py -3.11", "py -3.10", "py -3"]
+    seen, result = set(), []
+    for candidate in ordered:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            result.append(candidate)
+    return result
+
+
+def probe_python(candidate, code):
+    return subprocess.run(
+        f'{quote(candidate)} -c "{code}"', shell=True, capture_output=True, text=True,
+    )
+
+
 def find_torch_python():
     """A Python that already has a working torch, if there is one on this machine."""
-    candidates = ["python", "python3", "py -3.11", "py -3.10", "py -3"]
-    for candidate in candidates:
-        probe = subprocess.run(
-            f'{candidate} -c "import torch; print(torch.__version__)"',
-            shell=True, capture_output=True, text=True,
-        )
+    for candidate in candidate_pythons():
+        probe = probe_python(candidate, "import torch; print(torch.__version__)")
         if probe.returncode == 0 and probe.stdout.strip():
             return candidate, probe.stdout.strip()
     return None, None
 
 
-def system_python(minimum=(3, 9)):
-    for candidate in ["python", "python3", "py -3"]:
-        probe = subprocess.run(
-            f'{candidate} -c "import sys; print(sys.version_info[:2])"',
-            shell=True, capture_output=True, text=True,
-        )
-        if probe.returncode == 0 and probe.stdout.strip():
-            try:
-                version = tuple(int(part) for part in probe.stdout.strip("() ").split(","))
-            except ValueError:
-                continue
-            if version >= minimum:
-                return candidate
-    return None
+def system_python(minimum=(3, 9), prefer=(3, 11)):
+    """Best usable interpreter on this machine, preferring the version the project wants."""
+    found = []
+    for candidate in candidate_pythons():
+        probe = probe_python(candidate, "import sys; print(sys.version_info[:2])")
+        if probe.returncode != 0:
+            continue
+        try:
+            version = tuple(int(part) for part in probe.stdout.strip("() ").split(","))
+        except ValueError:
+            continue
+        if version >= minimum:
+            found.append((candidate, version))
+    if not found:
+        return None
+    for candidate, version in found:
+        if version == prefer:
+            return candidate
+    return found[0][0]
 
 
-def menu(options, language="en"):
+def menu(options, language="en", default="1"):
     print()
     print(t("choose", language))
     for number, description in options:
         print(f"  {number}) {description}")
+    print(f"  {t('choose.default', language).format(default)}")
     print(f"  [{t('prompt', language)}] ", end="", flush=True)
+
+
+def bundled_python():
+    """The portable Python installed by a previous run, if there is one."""
+    for candidate in (PYTHON_DIR / "python.exe", PYTHON_DIR / "python", PYTHON_DIR / "bin" / "python3"):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def warn_if_not_311(executable, language="en"):
@@ -436,33 +479,36 @@ def main(argv=None):
     if wheels:
         options.append((3, t("choose.offline", language)))
 
-    choice = "1"
+    # Nothing of ours has been installed yet and torch is already on the
+    # machine: reusing it saves three gigabytes, so that is the default.
+    choice = "2" if torch_python and not bundled_python() else "1"
     if args.reuse_torch and torch_python:
         choice = "2"
     elif args.offline and wheels:
         choice = "3"
     elif not args.yes and len(options) > 1:
-        menu(options, language)
-        choice = ask("", "1")
+        menu(options, language, default=choice)
+        choice = ask("", choice)
 
     base_python = None
     reuse_torch = choice == "2"
     if reuse_torch:
         base_python = torch_python
     else:
-        bundled = next(
-            (candidate for candidate in
-             (PYTHON_DIR / "python.exe", PYTHON_DIR / "python", PYTHON_DIR / "bin" / "python3")
-             if candidate.exists()),
-            None,
-        )
+        bundled = bundled_python()
         if bundled:
             base_python = str(bundled)
             print(f"  {t('python.reuse', language)} {base_python}")
         else:
-            base_python = fetch_python(language)
-            if not base_python:
-                return 1
+            found = system_python()
+            if found:
+                base_python = found
+                print(f"  {t('python.using', language)} {base_python}")
+                warn_if_not_311(found, language)
+            else:
+                base_python = fetch_python(language)
+                if not base_python:
+                    return 1
 
     # 2 -- the virtual environment.
     step(2, t("venv.creating", language))

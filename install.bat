@@ -45,7 +45,8 @@ if errorlevel 1 (
     powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; Invoke-WebRequest -Uri '%REPO_URL%' -OutFile '%REPO_ZIP%' -UseBasicParsing"
 )
 if not exist "%REPO_ZIP%" goto :repo_failed
-tar.exe -xf "%REPO_ZIP%" -C "%~dp0" --strip-components=1
+rem %~dp0. rather than %~dp0: a trailing backslash would escape the closing quote
+tar.exe -xf "%REPO_ZIP%" -C "%~dp0." --strip-components=1
 if errorlevel 1 goto :repo_failed
 del "%REPO_ZIP%" >nul 2>nul
 if not exist "%~dp0scripts\arbuz_install.py" goto :repo_failed
