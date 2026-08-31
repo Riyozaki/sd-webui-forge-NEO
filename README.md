@@ -1,10 +1,23 @@
-<h1 align="center">Stable Diffusion WebUI Forge - Neo</h1>
+<div align="center">
+  <img src="docs/arbuz-mark.svg" width="76" alt="ArbuzDiffusion">
+  <h1>ArbuzDiffusion</h1>
+  <p><b>Stable Diffusion WebUI Forge &mdash; Neo, squeezed.</b></p>
+  <p>
+    <a href="https://github.com/Riyozaki/sd-webui-forge-NEO/blob/neo/tests"><img src="https://img.shields.io/badge/tests-41%20passing-16a96a" alt="41 tests passing"></a>
+    <img src="https://img.shields.io/badge/no-torch%20or%20GPU%20needed-16a96a" alt="no torch or GPU needed">
+    <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11-16a96a" alt="python">
+    <img src="https://img.shields.io/badge/gradio-4.40.0-16a96a" alt="gradio">
+  </p>
+</div>
 
 <p align="center"><sup>
-[ <a href="https://github.com/Haoming02/sd-webui-forge-classic/tree/classic#stable-diffusion-webui-forge---classic">Classic</a> | Neo ]
+[ <a href="https://github.com/Haoming02/sd-webui-forge-classic/tree/classic#stable-diffusion-webui-forge---classic">Classic</a> |
+<a href="https://github.com/Haoming02/sd-webui-forge-classic/tree/neo">Neo</a> |
+<b>ArbuzDiffusion</b> ]
 </sup></p>
 
-<p align="center"><img src="html\ui.webp" width=512 alt="UI"></p>
+<p align="center"><img src="html/ui.webp" width=512 alt="UI"></p>
+<p align="center"><sub>The screenshot is upstream's and shows the stock Gradio theme &mdash; this fork ships its own, see <a href="#the-look">The look</a>.</sub></p>
 
 <blockquote><i>
 <b>Stable Diffusion WebUI Forge</b> is a platform on top of the original <a href="https://github.com/AUTOMATIC1111/stable-diffusion-webui">Stable Diffusion WebUI</a> by <ins>AUTOMATIC1111</ins>, to make development easier, optimize resource management, speed up inference, and study experimental features.<br>
@@ -16,6 +29,12 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 <br>
 
 "**Neo**" mainly serves as an continuation for the "`latest`" version of Forge, which was built on [Gradio](https://github.com/gradio-app/gradio) `4.40.0` before lllyasviel became too busy... Additionally, this fork is focused on optimization and usability, with the main goal of being the lightest WebUI without any bloatwares.
+
+**ArbuzDiffusion** is that fork with three things pushed further: the sampling
+and decode paths are measured and trimmed (see [Optimizations](#optimizations)),
+models can be found and pulled from [Civitai](#civitai) without leaving the UI,
+and the interface has its own palette instead of the stock Gradio one
+(see [The look](#the-look)).
 
 > [!Tip]
 > [How to Install](#installation)
@@ -213,6 +232,31 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 
 <br>
 
+## The look
+
+A fork with its own name should have its own face. **ArbuzDiffusion** ships two
+Gradio themes built from one palette, and the palette is a watermelon read from
+the outside in:
+
+| Ramp | Role | Use |
+| - | - | - |
+| **bark** | deep rind green | the *neutral* ramp &mdash; every surface carries a hint of it instead of being grey |
+| **flesh** | red-pink | the *primary* ramp: the one accent, for Generate, focus rings and active states |
+| **rind** | bright green | the *secondary* ramp: progress, success, anything that should feel alive |
+
+| Setting (Settings &rarr; User Interface) | Meaning |
+| - | - |
+| `Gradio Theme` | `Arbuz Dark` (default) or `Arbuz Light` |
+| `Interface density` (Settings &rarr; ArbuzDiffusion) | `Compact` / `Cozy` / `Spacious` &mdash; drives the theme's own spacing and text scales, so every component follows |
+| `Show the ArbuzDiffusion header` | the mark and wordmark above the tabs |
+
+Everything hand-written in this fork &mdash; the extra networks cards, the
+Civitai tab, the progress bar &mdash; reads the same `--arbuz-*` tokens, so a
+single theme change recolours the lot. Both the theme and the density ask for a
+UI reload; that is expected.
+
+<br>
+
 ## Civitai
 
 A **Civitai** tab lets you find and download models without leaving the WebUI.
@@ -231,6 +275,17 @@ Since 15.04.2026 Civitai is split across two sites, and both are supported:
   sidecar plus a preview image, so it shows up in **Extra Networks** with a thumbnail,
   its description and its trigger words
 - trigger words can be copied into the positive prompt with one click
+
+**Updates for installed LoRAs** (in the tab, collapsed by default) answers "is one
+of mine out of date?" without touching the disk: the AutoV2 value Forge already
+keeps for every network is the same one Civitai indexes, so one lookup plus one
+look at the model's version list is enough. The check runs in a thread, two
+throttled requests per network, and every row can pull the new version into the
+folder the old one lives in. Networks Forge has not hashed yet are skipped and
+counted rather than hashed &mdash; an update check must not read gigabytes.
+
+The sidecar next to a downloaded model records `civitai.hashes`, which is what the
+LoRA scanner reads: a model that came from Civitai is never hashed again.
 
 API keys (needed for models that require an account) are set in
 **Settings &rarr; Neo Optimizations &rarr; Civitai**; each site needs its own key.
@@ -327,6 +382,45 @@ python benchmark_neo.py --steps 20 --width 1024 --height 1024 --runs 3
 python benchmark_neo.py --ab neo_cudnn_benchmark
 ```
 
+While you are just using the UI, every generation prints where its time went:
+
+```
+[NEO] 4 image(s) 1024x1024, 20 steps: 5.02s total - sampling 4.31s, decode 0.29s,
+post-processing 0.31s, the rest 0.11s
+```
+
+That split is the fastest way to read a machine: low VRAM pushes cost into
+*sampling*, a slow disk or a high PNG compression level shows up in
+*post-processing*, and a decode that silently fell back to tiled VAE (the console
+says `Encountered Out of Memory during VAE decoding`) shows up as *decode*
+ballooning. Turn the line off in **Settings &rarr; Neo Optimizations**.
+
+> [!Note]
+> `--ab` only works for boolean settings. TeaCache's threshold and the compile
+> mode are not, so set them in the UI and compare two plain runs.
+
+<br>
+
+## Tests
+
+The suite runs without torch, gradio or numpy &mdash; every test either stubs the
+dependency or loads the module under test from source &mdash; so it finishes in
+about a second and passes on a machine with no GPU:
+
+```bash
+python -m unittest discover -s tests
+```
+
+It covers the CUDA graph logic (when a recording is allowed, how it is verified,
+how it is torn down), the Civitai update-check rendering and the sidecar reader,
+the theme builder, and the failure cleanup paths.
+
+The matching GitHub Actions workflow is checked in as
+[`docs/github-tests-workflow.yml`](docs/github-tests-workflow.yml) &mdash; copy it
+to `.github/workflows/tests.yml` (or commit it from a token that carries the
+`workflows` permission) to have it run on every push and pull request against
+Python 3.10 and 3.11. It installs nothing, so a run finishes in seconds.
+
 <br>
 
 ## Installation
@@ -334,7 +428,7 @@ python benchmark_neo.py --ab neo_cudnn_benchmark
 0. Install **[git](https://git-scm.com/downloads)**
 1. Clone the Repo
     ```bash
-    git clone https://github.com/Haoming02/sd-webui-forge-classic sd-webui-forge-neo --branch neo
+    git clone https://github.com/Riyozaki/sd-webui-forge-NEO.git
     ```
 
 2. Setup Python
@@ -476,6 +570,11 @@ In my experience, the speed of each attention function for SDXL is ranked in the
 <br>
 
 ## Issues & Requests
+
+> [!Tip]
+> When reporting something slow, paste the `[NEO] ...s total - sampling ...` line
+> from the console along with your settings. It says which part of the pipeline
+> the time went into, which is usually most of the answer.
 
 - **Issues** about removed features will simply be ignored
 - **Issues** regarding installation will be ignored if it's obviously user-error

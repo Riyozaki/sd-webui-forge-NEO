@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # The suite runs without torch, gradio or numpy: every test either stubs
+      # the dependency or loads the module under test from source, precisely so
+      # it can run here in seconds and on a machine with no GPU.
+      - name: Syntax check
+        run: python -m compileall -q modules backend extensions-builtin/sd_forge_civitai extensions-builtin/sd_forge_lora tests
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
