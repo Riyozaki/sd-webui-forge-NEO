@@ -54,7 +54,7 @@ def samples_to_images_tensor(sample, approximation=None, model=None):
     elif approximation == 3:
         if (mdl := sd_vae_taesd.decoder_model()) is not None:
             x_sample = mdl(sample.to(devices.device, devices.dtype)).detach()
-            x_sample = x_sample * 2 - 1
+            x_sample = x_sample.mul(2.0).sub_(1.0)
         else:
             approximation = 2
 
@@ -67,7 +67,7 @@ def samples_to_images_tensor(sample, approximation=None, model=None):
 
 
 def single_sample_to_image(sample, approximation=None):
-    x_sample = samples_to_images_tensor(sample.unsqueeze(0), approximation)[0] * 0.5 + 0.5
+    x_sample = samples_to_images_tensor(sample.unsqueeze(0), approximation)[0].mul(0.5).add_(0.5)
 
     x_sample = x_sample.cpu()
     x_sample.mul_(255.0)
@@ -105,7 +105,7 @@ def images_tensor_to_samples(image, approximation=None, model=None):
             model = shared.sd_model
 
         image = image.to(shared.device, dtype=devices.dtype_vae)
-        image = image * 2 - 1
+        image = image.mul(2.0).sub_(1.0)
         if len(image) > 1 and not model.is_wan:
             x_latent = torch.stack([model.get_first_stage_encoding(model.encode_first_stage(torch.unsqueeze(img, 0)))[0] for img in image])
         else:

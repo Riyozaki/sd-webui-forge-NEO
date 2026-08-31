@@ -1020,7 +1020,9 @@ def process_images_inner(p: StableDiffusionProcessing) -> Processed:
                 x_samples_ddim = decode_latent_batch(p.sd_model, samples_ddim, target_device=devices.cpu, check_for_nans=True)
 
             x_samples_ddim = torch.stack(x_samples_ddim).float()
-            x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+            # torch.stack always allocates, so the conversion can happen in place:
+            # (x + 1.0) / 2.0 plus a clamp makes three extra copies of the batch.
+            x_samples_ddim.add_(1.0).div_(2.0).clamp_(min=0.0, max=1.0)
 
             if len(x_samples_ddim.shape) == 5:
                 x_samples_ddim = x_samples_ddim.reshape(-1, *x_samples_ddim.shape[-3:])
@@ -1363,7 +1365,10 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
             # here we don't need to generate image, we just take self.firstpass_image and prepare it for hires fix
 
             if self.latent_scale_mode is None:
-                image = np.array(self.firstpass_image).astype(np.float32) / 255.0 * 2.0 - 1.0
+                image = np.array(self.firstpass_image).astype(np.float32)
+                image /= 255.0
+                image *= 2.0
+                image -= 1.0
                 image = np.moveaxis(image, 2, 0)
 
                 samples = None
@@ -1483,7 +1488,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
             else:
                 image_conditioning = self.txt2img_image_conditioning(samples)
         else:
-            lowres_samples = torch.clamp((decoded_samples + 1.0) / 2.0, min=0.0, max=1.0)
+            lowres_samples = decoded_samples.add(1.0).div_(2.0).clamp_(min=0.0, max=1.0)
 
             batch_images = []
             for i, x_sample in enumerate(lowres_samples):
@@ -1858,7 +1863,7 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
                 self.init_latent = self.init_latent * self.mask
                 self.extra_generation_params["Masked content"] = 'latent nothing'
 
-        self.image_conditioning = self.img2img_image_conditioning(image * 2 - 1, self.init_latent, image_mask, self.mask_round)
+        self.image_conditioning = self.img2img_image_conditioning(image.mul(2.0).sub_(1.0), self.init_latent, image_mask, self.mask_round)
 
     def sample(self, conditioning, unconditional_conditioning, seeds, subseeds, subseed_strength, prompts):
         x = self.rng.next()

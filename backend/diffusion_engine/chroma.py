@@ -50,12 +50,12 @@ class Chroma(ForgeDiffusionEngine):
 
     @torch.inference_mode()
     def encode_first_stage(self, x):
-        sample = self.forge_objects.vae.encode(x.movedim(1, -1) * 0.5 + 0.5)
+        sample = self.forge_objects.vae.encode(x.movedim(1, -1).mul(0.5).add_(0.5))
         sample = self.forge_objects.vae.first_stage_model.process_in(sample)
         return sample.to(x)
 
     @torch.inference_mode()
     def decode_first_stage(self, x):
         sample = self.forge_objects.vae.first_stage_model.process_out(x)
-        sample = self.forge_objects.vae.decode(sample).movedim(-1, 1) * 2.0 - 1.0
+        sample = self.forge_objects.vae.decode(sample).movedim(-1, 1).mul_(2.0).sub_(1.0)
         return sample.to(x)

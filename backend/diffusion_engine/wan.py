@@ -99,7 +99,7 @@ class Wan(ForgeDiffusionEngine):
         assert c == 3
         if length > 1:
             x = x[0].unsqueeze(0)  # enforce batch_size of 1
-        start_image = x.movedim(1, -1) * 0.5 + 0.5
+        start_image = x.movedim(1, -1).mul(0.5).add_(0.5)
         latent = torch.zeros([1, 16, ((length - 1) // 4) + 1, h // 8, w // 8], device=self.forge_objects.vae.device)
         self.image_to_video(length, start_image, latent)
         sample = self.forge_objects.vae.first_stage_model.process_in(latent)
@@ -108,5 +108,5 @@ class Wan(ForgeDiffusionEngine):
     @torch.inference_mode()
     def decode_first_stage(self, x):
         sample = self.forge_objects.vae.first_stage_model.process_out(x)
-        sample = self.forge_objects.vae.decode(sample).movedim(-1, 2) * 2.0 - 1.0
+        sample = self.forge_objects.vae.decode(sample).movedim(-1, 2).mul_(2.0).sub_(1.0)
         return sample.to(x)
