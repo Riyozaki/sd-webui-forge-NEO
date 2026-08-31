@@ -3,7 +3,7 @@
   <h1>ArbuzDiffusion</h1>
   <p><b>Stable Diffusion WebUI Forge &mdash; Neo, squeezed.</b></p>
   <p>
-    <a href="https://github.com/Riyozaki/sd-webui-forge-NEO/blob/neo/tests"><img src="https://img.shields.io/badge/tests-41%20passing-16a96a" alt="41 tests passing"></a>
+    <a href="https://github.com/Riyozaki/sd-webui-forge-NEO/tree/neo/tests"><img src="https://img.shields.io/badge/tests-passing-16a96a" alt="tests passing"></a>
     <img src="https://img.shields.io/badge/no-torch%20or%20GPU%20needed-16a96a" alt="no torch or GPU needed">
     <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11-16a96a" alt="python">
     <img src="https://img.shields.io/badge/gradio-4.40.0-16a96a" alt="gradio">

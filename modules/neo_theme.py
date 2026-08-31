@@ -26,9 +26,12 @@ import gradio as gr
 
 try:
     from gradio.themes.utils import colors, sizes
-except ImportError:  # pragma: no cover - older gradio layout
+except ImportError:  # pragma: no cover - an older gradio kept sizes elsewhere
     from gradio.themes.utils import colors  # type: ignore
     from gradio.themes import sizes  # type: ignore
+except Exception:  # pragma: no cover - a gradio that moved them must not stop the UI
+    colors = None
+    sizes = None
 
 APP_TITLE = "ArbuzDiffusion"
 """Window title, and the name the header shows."""
@@ -62,50 +65,55 @@ FONT_MONO = [
 
 # --------------------------------------------------------------------- the palette
 
-FLESH = colors.Color(
-    name="flesh",
-    c50="#fff1f4",
-    c100="#ffe1e7",
-    c200="#ffc5d1",
-    c300="#ff9db1",
-    c400="#ff6b86",
-    c500="#ff4d6d",
-    c600="#f73659",
-    c700="#d32445",
-    c800="#b01e3c",
-    c900="#8f1d35",
-    c950="#51091c",
-)
+try:
+    FLESH = colors.Color(
+        name="flesh",
+        c50="#fff1f4",
+        c100="#ffe1e7",
+        c200="#ffc5d1",
+        c300="#ff9db1",
+        c400="#ff6b86",
+        c500="#ff4d6d",
+        c600="#f73659",
+        c700="#d32445",
+        c800="#b01e3c",
+        c900="#8f1d35",
+        c950="#51091c",
+    )
 
-RIND = colors.Color(
-    name="rind",
-    c50="#ecfdf3",
-    c100="#d6f7e4",
-    c200="#aeefcd",
-    c300="#74e0ac",
-    c400="#3dcc88",
-    c500="#16a96a",
-    c600="#0f8a58",
-    c700="#106e49",
-    c800="#11583c",
-    c900="#0e4833",
-    c950="#062a1e",
-)
+    RIND = colors.Color(
+        name="rind",
+        c50="#ecfdf3",
+        c100="#d6f7e4",
+        c200="#aeefcd",
+        c300="#74e0ac",
+        c400="#3dcc88",
+        c500="#16a96a",
+        c600="#0f8a58",
+        c700="#106e49",
+        c800="#11583c",
+        c900="#0e4833",
+        c950="#062a1e",
+    )
 
-BARK = colors.Color(
-    name="bark",
-    c50="#f5f8f6",
-    c100="#e7ede9",
-    c200="#d1dad4",
-    c300="#adbab2",
-    c400="#7e9087",
-    c500="#5f7167",
-    c600="#48584f",
-    c700="#36453c",
-    c800="#222e28",
-    c900="#161e19",
-    c950="#0c1210",
-)
+    BARK = colors.Color(
+        name="bark",
+        c50="#f5f8f6",
+        c100="#e7ede9",
+        c200="#d1dad4",
+        c300="#adbab2",
+        c400="#7e9087",
+        c500="#5f7167",
+        c600="#48584f",
+        c700="#36453c",
+        c800="#222e28",
+        c900="#161e19",
+        c950="#0c1210",
+    )
+except Exception:  # pragma: no cover
+    # No Colour class to build ramps with. Name the nearest built-in hues
+    # instead, so the WebUI still starts - just without our exact shades.
+    FLESH, RIND, BARK = "rose", "emerald", "stone"
 
 # The mark is small enough to be inlined: no binary asset, no request, and it
 # inherits the current colour for the parts that should.
@@ -289,14 +297,15 @@ class ArbuzDark(gr.themes.Base):
 
     def __init__(self, **kwargs):
         # defaults, so build_theme() can override the scales for a density
-        kwargs.setdefault("spacing_size", sizes.spacing_md)
-        kwargs.setdefault("text_size", sizes.text_md)
+        if HAS_SIZES:
+            kwargs.setdefault("spacing_size", sizes.spacing_md)
+            kwargs.setdefault("text_size", sizes.text_md)
+            kwargs.setdefault("radius_size", sizes.radius_md)
 
         super().__init__(
             primary_hue=FLESH,
             secondary_hue=RIND,
             neutral_hue=BARK,
-            radius_size=sizes.radius_md,
             **kwargs,
         )
         _apply(self, **_dark())
@@ -307,14 +316,15 @@ class ArbuzLight(gr.themes.Base):
 
     def __init__(self, **kwargs):
         # defaults, so build_theme() can override the scales for a density
-        kwargs.setdefault("spacing_size", sizes.spacing_md)
-        kwargs.setdefault("text_size", sizes.text_md)
+        if HAS_SIZES:
+            kwargs.setdefault("spacing_size", sizes.spacing_md)
+            kwargs.setdefault("text_size", sizes.text_md)
+            kwargs.setdefault("radius_size", sizes.radius_md)
 
         super().__init__(
             primary_hue=FLESH,
             secondary_hue=RIND,
             neutral_hue=BARK,
-            radius_size=sizes.radius_md,
             **kwargs,
         )
         _apply(self, **_light())
@@ -324,6 +334,10 @@ DENSITIES = ("Compact", "Cozy", "Spacious")
 """The three steps of the interface density setting."""
 
 
+HAS_SIZES = sizes is not None and hasattr(sizes, "radius_md")
+"""False on a gradio whose size presets moved; the themes then keep its defaults."""
+
+
 def _scale(density: str | None):
     """Gradio sizes for a density name.
 
@@ -331,6 +345,9 @@ def _scale(density: str | None):
     everywhere - every component Gradio ships reads them - instead of poking at
     paddings from CSS with ``!important``.
     """
+    if not HAS_SIZES:  # pragma: no cover
+        return None, None
+
     step = (density or "Cozy").strip().lower()
     spacing = {"compact": "spacing_sm", "spacious": "spacing_lg"}.get(step, "spacing_md")
     text = {"compact": "text_sm", "spacious": "text_lg"}.get(step, "text_md")
@@ -340,9 +357,15 @@ def _scale(density: str | None):
 def build_theme(name: str | None = None, density: str | None = None):
     """The theme for a name from the settings drop-down."""
     spacing, text = _scale(density)
+    extra = {}
+    if spacing is not None:
+        extra["spacing_size"] = spacing
+    if text is not None:
+        extra["text_size"] = text
+
     if (name or "").strip().lower() == "arbuz light":
-        return ArbuzLight(spacing_size=spacing, text_size=text)
-    return ArbuzDark(spacing_size=spacing, text_size=text)
+        return ArbuzLight(**extra)
+    return ArbuzDark(**extra)
 
 
 def is_arbuz_theme(name: str | None) -> bool:

@@ -222,6 +222,30 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(theme.body_background_fill, "#000000")
 
 
+class DegradeGracefullyTests(unittest.TestCase):
+    """The theme is built at startup, so a gradio that moves its helpers must
+    not be able to stop the WebUI from starting."""
+
+    def test_without_the_colour_and_size_helpers(self):
+        utils = sys.modules["gradio.themes.utils"]
+        colors, sizes = utils.colors, utils.sizes
+        try:
+            utils.colors = None
+            utils.sizes = None
+
+            module = importlib.util.module_from_spec(SPECIFICATION)
+            SPECIFICATION.loader.exec_module(module)
+        finally:
+            utils.colors = colors
+            utils.sizes = sizes
+
+        self.assertEqual(module.FLESH, "rose")
+        self.assertEqual(module.RIND, "emerald")
+        self.assertEqual(module.BARK, "stone")
+        self.assertFalse(module.HAS_SIZES)
+        self.assertIsInstance(module.build_theme("Arbuz Light", "Compact"), module.ArbuzLight)
+
+
 class FlagTests(unittest.TestCase):
     def test_the_flags_carry_both_values(self):
         html = neo_theme.flags_html("Compact", "Arbuz Light")
