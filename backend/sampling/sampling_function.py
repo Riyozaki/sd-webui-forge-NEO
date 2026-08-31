@@ -225,11 +225,14 @@ def clear_cond_mark_cache():
 def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
     global _low_vram_warning_shown
 
-    out_cond = torch.zeros_like(x_in)
-    out_count = torch.full_like(x_in, 1e-37)
-
-    out_uncond = torch.zeros_like(x_in)
-    out_uncond_count = torch.full_like(x_in, 1e-37)
+    # [NEO] Only allocated when a mask really has to be accumulated. In the common
+    # case (one full-area condition plus one unconditional one) the accumulators
+    # degenerate into a copy, and four latent-sized tensors per step is a lot of
+    # memory traffic to allocate and then throw away.
+    out_cond = None
+    out_count = None
+    out_uncond = None
+    out_uncond_count = None
 
     COND = 0
     UNCOND = 1
@@ -265,10 +268,10 @@ def calc_cond_uncond_batch(model, cond, uncond, x_in, timestep, model_options):
         out_uncond = None
     else:
         out_cond = torch.zeros_like(x_in)
-        out_count = torch.ones_like(x_in) * 1e-37
+        out_count = torch.full_like(x_in, 1e-37)
 
         out_uncond = torch.zeros_like(x_in)
-        out_uncond_count = torch.ones_like(x_in) * 1e-37
+        out_uncond_count = torch.full_like(x_in, 1e-37)
 
     while len(to_run) > 0:
         first = to_run[0]

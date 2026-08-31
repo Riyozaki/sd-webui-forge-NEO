@@ -226,6 +226,12 @@ class VAE:
             batch_number = int(free_memory / memory_used)
             batch_number = max(1, batch_number)
 
+            if batch_number >= samples_in.shape[0]:
+                # [NEO] One chunk covers the batch, so the copy into `pixel_samples`
+                # below would move an entire batch of images for nothing.
+                samples = samples_in.to(self.vae_dtype).to(self.device)
+                return self.process_output(self.first_stage_model.decode(samples).to(self.output_device).float()).movedim(1, -1)
+
             for x in range(0, samples_in.shape[0], batch_number):
                 samples = samples_in[x : x + batch_number].to(self.vae_dtype).to(self.device)
                 out = self.process_output(self.first_stage_model.decode(samples).to(self.output_device).float())

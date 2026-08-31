@@ -621,6 +621,14 @@ class DecodedSamples(list):
 
 
 def decode_latent_batch(model, batch, target_device=None, check_for_nans=False):
+    # [NEO] Every engine returns the decoded batch on the device of the latent it
+    # was handed.  Feeding it a latent that already sits on `target_device` makes
+    # the images cross the bus once - out of the VAE - instead of three times
+    # (VAE -> intermediate, back to the GPU because the latent lives there, then
+    # to `target_device`).  A latent is tiny next to the images it decodes to.
+    if target_device is not None and isinstance(batch, torch.Tensor) and batch.device != target_device:
+        batch = batch.to(target_device)
+
     samples = DecodedSamples()
     samples_pytorch = decode_first_stage(model, batch).to(target_device)
 
