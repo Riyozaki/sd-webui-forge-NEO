@@ -51,6 +51,10 @@ class DownloadJob:
         self.trained_words: list[str] = []
         self.version: dict = {}
         self.model: dict = {}
+        # The AutoV2 / SHA256 hashes of the file as published by Civitai. They go
+        # into the sidecar so scanning a model folder never has to hash the file
+        # again to reach the very same value.
+        self.hashes: dict = {}
 
         self._lock = threading.Lock()
         self._cancel = threading.Event()
@@ -147,6 +151,7 @@ class DownloadManager:
         job.version = version
         job.model = model
         job.trained_words = api.trained_words(version)
+        job.hashes = f.get("hashes") or {}
 
         images = api.version_images(version, limit=1)
         if images:
@@ -361,6 +366,17 @@ class DownloadManager:
             "trained_words": job.trained_words,
             "download_url": f"https://{job.site}/models/{(job.model or {}).get('id')}?modelVersionId={job.version_id}",
             "downloaded_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            # Nested copy for the sidecar readers in the LoRA/embedding scanners:
+            # civitai.hashes.AutoV2 is the same value the built-in AutoV2 hash
+            # would compute from the file, so it makes scanning instant.
+            "civitai": {
+                "site": job.site,
+                "model_id": (job.model or {}).get("id"),
+                "version_id": job.version_id,
+                "version_name": (job.version or {}).get("name"),
+                "base_model": (job.version or {}).get("baseModel"),
+                "hashes": {k: v for k, v in (job.hashes or {}).items() if isinstance(v, str)},
+            },
         }
 
         try:
