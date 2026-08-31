@@ -53,7 +53,9 @@ class KModel(torch.nn.Module):
         """Single entry point for the denoiser, so the cache has exactly one place to hook into."""
 
         def run():
-            return self.diffusion_model(xc, t, context=context, control=control, transformer_options=transformer_options, **extra_conds)
+            from modules import neo_compile
+
+            return neo_compile.accelerator.run(self.diffusion_model, xc, t, context, control, transformer_options, extra_conds)
 
         try:
             from modules import neo_cache

@@ -482,6 +482,15 @@ def forge_model_reload():
             except AttributeError:
                 pass
 
+        # A recorded CUDA graph and a compiled forward both belong to the
+        # model that is about to disappear.
+        try:
+            from modules.neo_compile import accelerator
+
+            accelerator.invalidate("model switch")
+        except Exception:
+            pass
+
         del model_data.sd_model
         model_data.sd_model = None
         # Let Python release the tensor objects first, then hand the freed

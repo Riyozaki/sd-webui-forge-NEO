@@ -580,6 +580,30 @@ options_templates.update(
             ),
             "neo_teacache_threshold": OptionInfo(0.0, "TeaCache threshold", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}).info("0 disables it; start around 0.05-0.15 and watch the reported skip rate"),
             "neo_teacache_warmup": OptionInfo(0.1, "TeaCache warmup", gr.Slider, {"minimum": 0.0, "maximum": 0.5, "step": 0.05}).info("fraction of the first steps that are always computed; protects the steps where the image is formed"),
+            "neo_accel_divider": OptionHTML(
+                """
+                <b>UNet acceleration</b> &mdash; both are experiments, both are off by default, and neither changes
+                the maths: results stay bit-identical apart from fp16 rounding.
+                <br>If either misbehaves badly enough that this page will not load, launch with
+                <code>--neo-no-cuda-graph</code> or <code>--neo-no-compile</code>.
+                """
+            ),
+            "neo_cuda_graph": OptionInfo(False, "Replay the UNet with CUDA graphs").info(
+                "records one UNet forward and replays it for every following step, which removes the per-step launch "
+                "overhead of hundreds of kernels; the recording is checked against the normal result before it is used, "
+                "and it is skipped whenever a ControlNet is active. Reserved memory is not released until the shape changes, "
+                "so on 8 GB try it with a modest resolution first"
+            ),
+            "neo_unet_compile": OptionInfo(
+                "disabled",
+                "Compile the UNet with TorchInductor",
+                gr.Radio,
+                {"choices": ["disabled", "dynamic shapes", "static shapes"]},
+            ).info(
+                "the first generation after enabling this takes minutes while the UNet is compiled; 'dynamic shapes' "
+                "compiles once and works for every resolution, 'static shapes' is faster but recompiles whenever the "
+                "resolution, batch size or prompt length changes. Errors inside the compiler fall back to the normal UNet"
+            ),
         },
     )
 )

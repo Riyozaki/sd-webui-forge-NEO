@@ -9,6 +9,11 @@ Usage::
     python benchmark_neo.py --steps 20 --width 1024 --height 1024 --runs 3
     python benchmark_neo.py --ab neo_cudnn_benchmark          # on vs. off
     python benchmark_neo.py --ab neo_fast_sampling_path --steps 8 --runs 5
+    python benchmark_neo.py --ab neo_cuda_graph --runs 5       # CUDA graph replay
+
+For the TeaCache threshold and TorchInductor compilation, which are not booleans,
+set the option in the UI (or config.json) and run without --ab; the console then
+reports the achieved skip rate / replay count for each generation.
 
 Notes:
 

@@ -9,6 +9,17 @@ from backend import memory_management
 from backend.patcher.base import ModelPatcher
 
 
+def release_neo_graph(reason: str) -> None:
+    """A recorded CUDA graph owns a pool the allocator cannot see."""
+
+    try:
+        from modules.neo_compile import accelerator
+
+        accelerator.release_graphs(reason)
+    except Exception:
+        pass
+
+
 @torch.inference_mode()
 def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_amount=4, out_channels=3, output_device="cpu", downscale=False, index_formulas=None):
     """https://github.com/comfyanonymous/ComfyUI/blob/v0.3.55/comfy/utils.py#L901"""
@@ -223,6 +234,7 @@ class VAE:
                 pixel_samples[x : x + batch_number] = out
         except memory_management.OOM_EXCEPTION:
             print("Warning: Encountered Out of Memory during VAE decoding; Retrying with Tiled VAE Decoding...")
+            release_neo_graph("out of memory while decoding")
             return self.decode_tiled(samples_in).to(self.output_device)
 
         pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
@@ -270,6 +282,7 @@ class VAE:
 
         except memory_management.OOM_EXCEPTION:
             print("Warning: Encountered Out of Memory during VAE Encoding; Retrying with Tiled VAE Encoding...")
+            release_neo_graph("out of memory while encoding")
             return self.encode_tiled(pixel_samples)
 
         return samples

@@ -62,6 +62,11 @@ parser.add_argument("--pin-shared-memory", action="store_true")
 parser.add_argument("--disable-gpu-warning", action="store_true")
 parser.add_argument("--fast-fp16", action="store_true")
 
+# Escape hatches for the Neo UNet acceleration, for the case where it misbehaves
+# badly enough that the settings page cannot be reached.
+parser.add_argument("--neo-no-cuda-graph", action="store_true")
+parser.add_argument("--neo-no-compile", action="store_true")
+
 args, _ = parser.parse_known_args()
 
 dynamic_args = dict(embedding_dir="./embeddings", emphasis_name="original")

@@ -271,9 +271,11 @@ class Sampler:
         state.sampling_steps = steps
         state.sampling_step = 0
 
-        from modules import neo_cache
+        from modules import neo_cache, neo_compile
 
         neo_cache.teacache.begin(steps)
+
+        neo_compile.accelerator.begin_sampling()
 
         try:
             # [NEO] cuDNN auto-tuning & friends, applied for the duration of this
@@ -292,6 +294,9 @@ class Sampler:
             # pin VRAM until the next job
             neo_cache.teacache.finish()
 
+            summary = neo_compile.accelerator.summary()
+            if summary:
+                print(f"[NEO] UNet: {summary}")
     def number_of_needed_noises(self, p):
         return p.steps
 

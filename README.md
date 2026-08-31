@@ -111,6 +111,8 @@ The name "Forge" is inspired by "Minecraft Forge". This project aims to become t
 - [X] Optional **TeaCache**
     - reuses the previous UNet residual when the timestep embedding has barely moved
     - **off by default** - it is an approximation; see [TeaCache](#teacache)
+- [X] Optional **CUDA graph** replay of the UNet and optional **TorchInductor** compilation
+    - **off by default**; see [UNet acceleration](#unet-acceleration)
 - [X] No longer `git` `clone` any repository on fresh install
 - [X] Remove unused `cmd_args`
 - [X] Remove unused `args_parser`
@@ -260,6 +262,58 @@ end of every sampling call (so a hires pass or a new batch can never reuse a
 stale residual), and when the conditional/unconditional pass has to be split
 into two forward passes only the first one is cached - the two halves can never
 be mixed up.
+
+<br>
+
+## UNet acceleration
+
+*Settings &rarr; Neo Optimizations &rarr; Performance*
+
+Two experiments that leave the maths alone - apart from fp16 rounding, the
+results are the same numbers you would get without them.
+
+**CUDA graph replay** records a single UNet forward and replays it for every
+following step.  Sampling calls the denoiser with identical shapes each step, so
+the per-step launch overhead of hundreds of kernels is replaced by one replay.
+It is the most useful on small/fast models (SD1.5) and at high step counts, and
+the least useful where a single step already takes hundreds of milliseconds.
+
+> [!Warning]
+> A recording keeps a private memory pool reserved until the shape changes, so
+> on an 8 GB card try it at a modest resolution first.
+
+| Setting | Meaning |
+| - | - |
+| `Replay the UNet with CUDA graphs` | off by default |
+
+It refuses to record whenever it cannot be sure that replaying is correct:
+
+- a ControlNet is active (its tensors change every step)
+- gradients are enabled, or something else is already capturing
+- an extension put a tensor into `transformer_options`
+- the model has no ordinary parameters (quantised models)
+
+and before a recording is used it is **compared against the normal result**.  If
+the replayed output differs by more than 2 % of the peak value, replay is
+switched off for the rest of the session and the console says so.  The same
+happens when recording runs out of memory.  A recording is also thrown away when
+the weights change - Forge applies LoRAs by replacing parameter objects, and a
+recording made before that would keep pointing at the old storage.
+
+**TorchInductor compilation** hands the UNet forward to `torch.compile`.  The
+first generation after enabling it takes minutes while the model is compiled,
+which is why it happens on the first UNet call and not while loading.  Errors
+inside the compiler fall back to the normal UNet instead of breaking a
+generation.
+
+| Setting | Meaning |
+| - | - |
+| `disabled` | the default |
+| `dynamic shapes` | compiled once, works for every resolution and prompt length |
+| `static shapes` | better kernels, but recompiles whenever the resolution, batch size or prompt length changes |
+
+If either of them misbehaves badly enough that the settings page will not load,
+launch with `--neo-no-cuda-graph` or `--neo-no-compile`.
 
 <br>
 
