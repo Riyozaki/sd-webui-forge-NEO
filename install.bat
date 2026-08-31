@@ -86,6 +86,11 @@ if not exist "%BOOTSTRAP%" goto :extract_failed
 :run_installer
 "%BOOTSTRAP%" scripts\arbuz_install.py %*
 if errorlevel 1 goto :install_failed
+
+rem A shortcut on the desktop, so starting next time is not a search for the
+rem folder. Failing to make it is not a problem - run.bat does the same thing.
+echo   Creating an ArbuzDiffusion shortcut on the desktop...
+powershell -NoProfile -Command "$s=(New-Object -WScript.Shell).CreateShortcut($env:USERPROFILE+'\Desktop\ArbuzDiffusion.lnk'); $s.TargetPath='%~dp0run.bat'; $s.WorkingDirectory='%~dp0.'; $s.Save()" >nul 2>nul
 echo.
 pause
 exit /b 0

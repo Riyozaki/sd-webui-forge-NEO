@@ -199,12 +199,12 @@ class LauncherFileTests(unittest.TestCase):
     """The .bat files are the whole point of the one click, so guard them."""
 
     def test_the_entry_points_exist(self):
-        for name in ("install.bat", "run.bat", "console.bat"):
+        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat"):
             with self.subTest(name=name):
                 self.assertTrue((REPOSITORY_ROOT / name).is_file())
 
     def test_batch_files_are_crlf_and_ascii_only(self):
-        for name in ("install.bat", "run.bat", "console.bat"):
+        for name in ("install.bat", "run.bat", "console.bat", "doctor.bat"):
             with self.subTest(name=name):
                 data = (REPOSITORY_ROOT / name).read_bytes()
                 self.assertIn(b"\r\n", data)
@@ -256,6 +256,26 @@ class LauncherFileTests(unittest.TestCase):
         source = (REPOSITORY_ROOT / "scripts" / "arbuz_install.py").read_text(encoding="utf8")
         self.assertIn('"--doctor"', source)
         self.assertIn("def doctor(", source)
+
+    def test_doctor_bat_needs_no_command_line(self):
+        # you cannot pass a flag by double-clicking a bat file
+        data = (REPOSITORY_ROOT / "doctor.bat").read_text(encoding="ascii")
+        self.assertIn("call install.bat --doctor", data)
+
+    def test_install_bat_leaves_a_shortcut_to_start_from(self):
+        data = (REPOSITORY_ROOT / "install.bat").read_text(encoding="ascii")
+        self.assertIn("Desktop", data)
+        self.assertIn("ArbuzDiffusion.lnk", data)
+
+    def test_a_plain_text_note_sits_next_to_the_bats(self):
+        # the one file a Windows user will actually open
+        note = REPOSITORY_ROOT / "КАК ЗАПУСТИТЬ.txt"
+        self.assertTrue(note.is_file())
+        data = note.read_bytes()
+        self.assertTrue(data.startswith(b"\xef\xbb\xbf"))  # BOM, so Notepad reads Cyrillic
+        text = data.decode("utf-8-sig")
+        self.assertIn("install.bat", text)
+        self.assertIn("doctor.bat", text)
 
     def test_the_installer_folder_is_ignored_by_git(self):
         ignored = (REPOSITORY_ROOT / ".gitignore").read_text().splitlines()
